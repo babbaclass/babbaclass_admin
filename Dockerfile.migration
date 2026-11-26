@@ -1,0 +1,35 @@
+# Cloud Run Job용 마이그레이션 이미지
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTESPACE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+# System deps
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download Cloud SQL Auth Proxy v1
+RUN curl -o /cloud-sql-proxy https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64 \
+    && chmod +x /cloud-sql-proxy
+
+# Install Python deps
+COPY requirements.txt ./
+RUN pip install --upgrade pip \
+    && pip install -r requirements.txt
+
+# Copy app and migrations
+COPY app ./app
+COPY alembic ./alembic
+COPY alembic.ini ./
+
+# Copy entrypoint for migration
+COPY entrypoint-migration.sh ./
+RUN chmod +x ./entrypoint-migration.sh
+
+ENTRYPOINT ["./entrypoint-migration.sh"]

@@ -1,0 +1,77 @@
+{% extends "sqladmin/layout.html" %}
+
+{% block content %}
+<div class="col-12">
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">소속 원장 리스트</h3>
+      <div class="card-actions">
+        <form method="GET" class="d-flex align-items-center">
+          {% if company_id %}
+          <input type="hidden" name="company_id" value="{{ company_id }}">
+          {% endif %}
+          <select name="sort" class="form-select" style="width: auto;" onchange="this.form.submit()">
+            {% for opt in sort_options %}
+            <option value="{{ opt.value }}" {% if opt.value == selected_sort %}selected{% endif %}>{{ opt.label }}</option>
+            {% endfor %}
+          </select>
+        </form>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table table-striped">
+        <thead>
+          <tr>
+            <th style="text-align:center; font-weight:bold; width:60px;">No</th>
+            <th style="font-weight:bold;">이름</th>
+            <th style="text-align:center; font-weight:bold;">최근 6개월 구매 건수</th>
+            <th style="text-align:right; font-weight:bold;">1년간 결제 누적액</th>
+            <th style="text-align:center; font-weight:bold;">계약종료 D-day</th>
+            <th style="font-weight:bold;">가입일</th>
+            <th style="font-weight:bold;">연락처</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if data %}
+            {% for row in data %}
+            <tr>
+              <td style="text-align:center;">{{ loop.index }}</td>
+              <td>{{ row.name }}</td>
+              <td style="text-align:center;">{{ row.purchase_count }}</td>
+              <td style="text-align:right;">{{ row.yearly_payment_display }}</td>
+              <td style="text-align:center; font-weight:bold;{% if row.d_day_color %} color: {{ row.d_day_color }};{% endif %}">{{ row.d_day }}</td>
+              <td>{{ row.join_date }}</td>
+              <td>{{ row.contact }}</td>
+            </tr>
+            {% endfor %}
+          {% else %}
+          <tr>
+            <td colspan="7" style="text-align:center; padding:2rem; color:#999;">소속 원장이 없습니다.</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+    <div class="card-footer">
+      <p class="text-muted mb-0" style="font-size:0.85rem;">
+        <i class="fa fa-info-circle"></i> 최근 6개월 구매 건수는 지난 180일 동안 결제 완료된 주문 건수입니다(가입비 주문 제외, 부분배송 포함).
+      </p>
+      <p class="text-muted mb-0 fw-bold" style="font-size:0.85rem;">
+        1년간 결제 누적액은 당해 년도 1월부터 매달 누적되는 결제액(가입비 제외)입니다. 다음달 1일에 전월 누적액이 업데이트 됩니다.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const currentPath = window.location.pathname;
+  document.querySelectorAll('.navbar-nav .nav-link, .sidebar .nav-link').forEach(function(link) {
+    const href = link.getAttribute('href');
+    if (href && currentPath.includes('teachers-list') && href.includes('teachers-list')) {
+      link.classList.add('active');
+    }
+  });
+});
+</script>
+{% endblock %}

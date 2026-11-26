@@ -1,0 +1,89 @@
+{% extends "sqladmin/layout.html" %}
+
+{# Try common block names used by sqladmin/tabler templates to inject extra styles #}
+{% block styles %}
+  {{ super() }}
+  <style>
+    /* 테이블 버튼 및 셀 정렬 개선 */
+    .table td, .table th {
+      vertical-align: middle !important;
+      text-align: center;
+    }
+    .table .btn {
+      width: 100%;
+      min-width: 80px;
+      min-height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.375rem 0.75rem;
+      box-sizing: border-box;
+    }
+    /* Force white text color for admin collapse/side menu items */
+    .navbar-vertical .navbar-nav .nav-link,
+    .navbar-vertical .navbar-nav .dropdown-toggle,
+    .navbar-vertical .navbar-nav .dropdown-menu .dropdown-item,
+    .navbar-vertical .navbar-nav .nav-item .nav-link {
+      color: #fff !important;
+    }
+
+    .navbar-vertical .navbar-nav .nav-link.active,
+    .navbar-vertical .navbar-nav .dropdown-toggle.active {
+      font-weight: 700;
+      background-color: rgba(255, 255, 255, 0.15);
+      border-radius: 0.35rem;
+      color: #fff !important;
+    }
+    
+    /* 사용자 정보 표시 스타일 */
+    .user-info-container {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0.75rem;
+      margin-left: auto;
+      padding: 0.5rem 0;
+    }
+    
+    .user-info-display {
+      font-size: 0.85rem;
+      color: #fff;
+      text-align: right;
+      line-height: 1.4;
+      padding: 0.5rem 1rem;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+    }
+    
+    .user-info-line {
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+    
+    .user-info-company {
+      font-size: 0.75rem;
+      opacity: 0.85;
+      margin-top: 0.25rem;
+    }
+  </style>
+{% endblock %}
+
+{% block head_css %}
+  {{ super() }}
+  <style>
+    /* Fallback to ensure white text in other menu variants */
+    .sidebar .menu .menu-item .menu-link,
+    .sidebar .menu .menu-list .menu-item a,
+    .sidebar .menu .menu-list .collapse .menu-item a {
+      color: #fff !important;
+    }
+  </style>
+{% endblock %}
+
+{% block head %}
+  {{ super() }}
+  <style>
+    /* Additional safety: set default nav link color to white */
+    nav a { color: #fff !important; }
+  </style>
+{% endblock %}

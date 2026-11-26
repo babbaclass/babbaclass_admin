@@ -1,0 +1,89 @@
+{% extends "sqladmin/layout.html" %}
+
+{% block content %}
+<div class="row">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center gap-3">
+        <div>
+          <h3 class="card-title mb-0">정산 안된 내역</h3>
+          <p class="text-muted mb-0">정산에서 제외된 주문/아이템을 살펴봅니다.</p>
+        </div>
+        <div class="text-muted small">최근 {{ total }}건</div>
+      </div>
+      <div class="card-body border-bottom">
+        <form method="get" class="row g-3 align-items-end">
+          <div class="col-md-3">
+            <label class="form-label">연도</label>
+            <select class="form-select" name="year">
+              <option value="">전체</option>
+              {% for year in available_years %}
+                <option value="{{ year }}" {% if year == selected_year %}selected{% endif %}>{{ year }}년</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">월</label>
+            <select class="form-select" name="month">
+              <option value="">전체</option>
+              {% for month in available_months %}
+                <option value="{{ month }}" {% if month == selected_month %}selected{% endif %}>{{ '%02d'|format(month) }}월</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">사유</label>
+            <select class="form-select" name="reason">
+              <option value="">전체</option>
+              {% for reason in reason_options %}
+                <option value="{{ reason }}" {% if reason == selected_reason %}selected{% endif %}>{{ reason }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-3 text-end">
+            <button type="submit" class="btn btn-primary w-100">필터 적용</button>
+          </div>
+        </form>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover card-table table-vcenter">
+            <thead>
+              <tr>
+                <th>연/월</th>
+                <th>주문번호</th>
+                <th>회원ID</th>
+                <th>지사</th>
+                <th>지사장</th>
+                <th>사유</th>
+                <th>상세</th>
+                <th>결제 정보</th>
+                <th>기록시간 (KST)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% if rows %}
+                {% for row in rows %}
+                  <tr>
+                    <td>{{ row.period }}</td>
+                    <td>{{ row.ordernum }}</td>
+                    <td>{{ row.member_id }}</td>
+                    <td>{{ row.company }}</td>
+                    <td>{{ row.user_name }} ({{ row.user_login }})</td>
+                    <td>{{ row.reason }}</td>
+                    <td>{{ row.detail }}</td>
+                    <td>{{ row.order_snapshot }}</td>
+                    <td>{{ row.recorded_at_kst }}</td>
+                  </tr>
+                {% endfor %}
+              {% else %}
+                <tr><td colspan="9" class="text-center text-muted">정산 스킵 기록이 없습니다.</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

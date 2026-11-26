@@ -1,0 +1,42 @@
+{% if live_notices %}
+<style>
+  .home-notice-banner {
+    color: #e60000;
+    line-height: 1.5;
+  }
+  .home-notice-banner__item + .home-notice-banner__item {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px dashed rgba(230, 0, 0, 0.35);
+  }
+  .home-notice-banner__title {
+    font-weight: 700;
+    font-size: 1.05rem;
+    animation: home-notice-title-blink 1.4s ease-in-out infinite;
+  }
+  .home-notice-banner__content {
+    font-weight: 400;
+    margin-top: 0.25rem;
+    white-space: pre-line;
+  }
+  @keyframes home-notice-title-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .home-notice-banner__title {
+      animation: none;
+      text-decoration: underline;
+      text-underline-offset: 0.2em;
+    }
+  }
+</style>
+<div class="home-notice-banner mb-4" role="region" aria-label="공지사항">
+  {% for notice in live_notices %}
+  <div class="home-notice-banner__item">
+    <div class="home-notice-banner__title">{{ notice.title }}</div>
+    <div class="home-notice-banner__content">{{ notice.content }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}

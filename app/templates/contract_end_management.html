@@ -1,0 +1,346 @@
+{% extends "sqladmin/layout.html" %}
+
+{% macro sortable_th(label, column, sort_type='numeric', align='') %}
+<th class="{{ align }}">
+  <div class="d-flex align-items-center gap-1 {% if align == 'text-end' %}justify-content-end{% elif align == 'text-center' %}justify-content-center{% endif %}">
+    <span>{{ label }}</span>
+    <div class="dropdown">
+      <button type="button"
+              class="btn btn-sm btn-link p-0 lh-1 column-sort-btn {% if selected_sort and selected_sort.startswith(column) %}text-primary{% else %}text-muted{% endif %}"
+              data-bs-toggle="dropdown"
+              aria-expanded="false"
+              title="정렬">
+        <i class="fa-solid fa-caret-down"></i>
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+        {% if sort_type == 'alpha' %}
+        <li><a class="dropdown-item {% if selected_sort == column ~ '_asc' %}active{% endif %}" href="#" onclick="applyColumnSort('{{ column }}_asc'); return false;">ㄱㄴㄷ 순</a></li>
+        <li><a class="dropdown-item {% if selected_sort == column ~ '_desc' %}active{% endif %}" href="#" onclick="applyColumnSort('{{ column }}_desc'); return false;">ㄱㄴㄷ 역순</a></li>
+        {% else %}
+        <li><a class="dropdown-item {% if selected_sort == column ~ '_asc' %}active{% endif %}" href="#" onclick="applyColumnSort('{{ column }}_asc'); return false;">오름차순</a></li>
+        <li><a class="dropdown-item {% if selected_sort == column ~ '_desc' %}active{% endif %}" href="#" onclick="applyColumnSort('{{ column }}_desc'); return false;">내림차순</a></li>
+        {% endif %}
+      </ul>
+    </div>
+  </div>
+</th>
+{% endmacro %}
+
+{% block content %}
+<style>
+  /* 다른 SQLAdmin 화면 대비 폰트가 작게 보이는 현상 방지 */
+  .column-sort-btn { font-size: 0.95rem; text-decoration: none !important; }
+  .column-sort-btn.text-primary { font-weight: 700; }
+  thead th { white-space: nowrap; vertical-align: middle; font-size: 0.95rem; }
+  thead .dropdown-menu { font-size: 0.95rem; }
+  thead .dropdown-item { font-size: 0.95rem; }
+  #filterForm .form-label { font-size: 0.95rem; }
+  #filterForm .form-select,
+  #filterForm .form-control { font-size: 0.95rem; }
+  thead .dropdown-item.active { background-color: #e7f1ff; color: #0d6efd; }
+</style>
+<div class="row">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h3 class="card-title mb-0">계약 종료 관리</h3>
+        <div class="card-actions">
+          <button type="button" class="btn btn-dark" onclick="exportContractEndsExcel()">엑셀 다운로드</button>
+        </div>
+      </div>
+      <!-- 필터 -->
+      <div class="card-body border-bottom py-3">
+        <form method="get" class="row g-3 align-items-end" id="filterForm">
+          <input type="hidden" name="sort" value="{{ selected_sort or 'dday_asc' }}">
+          <div class="col-md-3">
+            <label class="form-label">소속 지사 지역</label>
+            <select class="form-select" name="company_id">
+              <option value="">전체</option>
+              {% for company in companies %}
+              <option value="{{ company.company_id }}" {% if company.company_id|string == selected_company_id %}selected{% endif %}>
+                {{ company.name or company.code }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">D-day</label>
+            <select class="form-select" name="dday_filter">
+              <option value="">전체</option>
+              <option value="120" {% if selected_dday_filter == '120' %}selected{% endif %}>120일 전</option>
+              <option value="90" {% if selected_dday_filter == '90' %}selected{% endif %}>90일 전</option>
+              <option value="30" {% if selected_dday_filter == '30' %}selected{% endif %}>30일 전</option>
+              <option value="expired" {% if selected_dday_filter == 'expired' %}selected{% endif %}>계약 종료</option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">메모 유무</label>
+            <select class="form-select" name="memo_filter">
+              <option value="">전체</option>
+              <option value="yes" {% if selected_memo_filter == 'yes' %}selected{% endif %}>있음</option>
+              <option value="no" {% if selected_memo_filter == 'no' %}selected{% endif %}>없음</option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">역할</label>
+            <select class="form-select" name="role_filter">
+              <option value="">전체</option>
+              <option value="2" {% if selected_role_filter == '2' %}selected{% endif %}>지사</option>
+              <option value="3" {% if selected_role_filter == '3' %}selected{% endif %}>원장</option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <button type="submit" class="btn btn-primary w-100">
+              <i class="fa-solid fa-magnifying-glass me-1"></i>필터 적용
+            </button>
+          </div>
+        </form>
+      </div>
+      <!-- 검색 -->
+      <div class="card-body border-bottom py-2 d-flex justify-content-end align-items-center gap-2">
+        <div class="input-group" style="width: auto; min-width: 220px; max-width: 280px;">
+          <input type="text" id="searchInput" name="search" form="filterForm" class="form-control" placeholder="소속 · 이름 검색" value="{{ selected_search }}" onkeydown="if (event.key === 'Enter') { event.preventDefault(); applySearch(); }">
+          <button type="button" class="btn btn-outline-secondary" onclick="applySearch()" title="검색">
+            <i class="fa-solid fa-magnifying-glass"></i>
+          </button>
+        </div>
+      </div>
+      <!-- 테이블 -->
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover card-table table-vcenter mb-0">
+            <thead>
+              <tr>
+                {{ sortable_th('소속', 'company', 'alpha') }}
+                {{ sortable_th('이름', 'user', 'alpha') }}
+                {{ sortable_th('D-day', 'dday', 'numeric', 'text-center') }}
+                {{ sortable_th('소속원 개수', 'member_count', 'numeric', 'text-center') }}
+                <th class="text-end">
+                  <div class="d-flex align-items-center justify-content-end gap-1">
+                    <span>누적매출1<br><span class="text-muted fw-normal small">(계약일로부터)</span></span>
+                    <div class="dropdown">
+                      <button type="button" class="btn btn-sm btn-link p-0 lh-1 column-sort-btn {% if selected_sort and selected_sort.startswith('sales1') %}text-primary{% else %}text-muted{% endif %}" data-bs-toggle="dropdown" title="정렬"><i class="fa-solid fa-caret-down"></i></button>
+                      <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+                        <li><a class="dropdown-item {% if selected_sort == 'sales1_asc' %}active{% endif %}" href="#" onclick="applyColumnSort('sales1_asc'); return false;">오름차순</a></li>
+                        <li><a class="dropdown-item {% if selected_sort == 'sales1_desc' %}active{% endif %}" href="#" onclick="applyColumnSort('sales1_desc'); return false;">내림차순</a></li>
+                      </ul>
+                    </div>
+                  </div>
+                </th>
+                <th class="text-end">
+                  <div class="d-flex align-items-center justify-content-end gap-1">
+                    <span>누적매출2<br><span class="text-muted fw-normal small">({{ sales_year }}년)</span></span>
+                    <div class="dropdown">
+                      <button type="button" class="btn btn-sm btn-link p-0 lh-1 column-sort-btn {% if selected_sort and selected_sort.startswith('sales2') %}text-primary{% else %}text-muted{% endif %}" data-bs-toggle="dropdown" title="정렬"><i class="fa-solid fa-caret-down"></i></button>
+                      <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+                        <li><a class="dropdown-item {% if selected_sort == 'sales2_asc' %}active{% endif %}" href="#" onclick="applyColumnSort('sales2_asc'); return false;">오름차순</a></li>
+                        <li><a class="dropdown-item {% if selected_sort == 'sales2_desc' %}active{% endif %}" href="#" onclick="applyColumnSort('sales2_desc'); return false;">내림차순</a></li>
+                      </ul>
+                    </div>
+                  </div>
+                </th>
+                {{ sortable_th('1년간 본인 결제 총액', 'total_payment', 'numeric', 'text-end') }}
+                {{ sortable_th('계약 연장 횟수', 'renewal_count', 'numeric', 'text-center') }}
+                <th class="text-center">비고(메모)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% if rows %}
+              {% for row in rows %}
+              <tr>
+                <td>
+                  {% if row.company_id %}
+                  <a href="{{ row.settlement_status_url }}" class="text-decoration-underline" title="소속 원장별 월매출">{{ row.company }}</a>
+                  {% else %}
+                  {{ row.company }}
+                  {% endif %}
+                </td>
+                <td>
+                  {% if row.user_id %}
+                  <a href="/admin/user/edit/{{ row.user_id }}" class="text-decoration-underline" title="회원 정보 수정 (메모 확인)">{{ row.user_name }}</a>
+                  {% else %}
+                  {{ row.user_name }}
+                  {% endif %}
+                </td>
+                <td class="text-center fw-bold" {% if row.d_day_color %}style="color: {{ row.d_day_color }};"{% endif %}>
+                  {{ row.d_day }}
+                </td>
+                <td class="text-center">{% if row.member_count != '' %}{{ row.member_count }}{% endif %}</td>
+                <td class="text-end">{% if row.cumulative_sales_1 %}{{ row.cumulative_sales_1 }} 원{% endif %}</td>
+                <td class="text-end">{% if row.cumulative_sales_2 %}{{ row.cumulative_sales_2 }} 원{% endif %}</td>
+                <td class="text-end">{% if row.total_payment %}{{ row.total_payment }} 원{% endif %}</td>
+                <td class="text-center">
+                  <select class="form-select form-select-sm d-inline-block" style="width: 70px;"
+                    data-contract-end-id="{{ row.contract_end_id }}"
+                    onchange="updateRenewalCount(this)">
+                    {% for i in range(21) %}
+                    <option value="{{ i }}" {% if row.renewal_count == i %}selected{% endif %}>{{ i }}</option>
+                    {% endfor %}
+                  </select>
+                </td>
+                <td class="text-center">
+                  {% if row.has_memo %}
+                  <span style="color: green; font-size: 1.1em;" title="메모 있음">✅</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+              {% else %}
+              <tr><td colspan="9" class="text-center text-muted py-4">계약 종료 기록이 없습니다.</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <!-- 페이지네이션 푸터 -->
+      <div class="card-footer d-flex justify-content-between align-items-center">
+        <div class="text-muted small">Showing {{ start_index }} to {{ end_index }} of {{ total_count }} items</div>
+        <div class="d-flex align-items-center gap-3">
+          <nav>
+            <ul class="pagination mb-0">
+              {% if page > 1 %}
+              <li class="page-item"><a class="page-link" href="#" onclick="goToPage({{ page-1 }})">‹ prev</a></li>
+              {% else %}
+              <li class="page-item disabled"><span class="page-link">‹ prev</span></li>
+              {% endif %}
+              {% for p in range(1, total_pages+1) %}
+                {% if p == page %}
+                <li class="page-item active"><span class="page-link">{{ p }}</span></li>
+                {% elif p <= 3 or p > total_pages - 2 or (p >= page-2 and p <= page+2) %}
+                <li class="page-item"><a class="page-link" href="#" onclick="goToPage({{ p }})">{{ p }}</a></li>
+                {% endif %}
+              {% endfor %}
+              {% if page < total_pages %}
+              <li class="page-item"><a class="page-link" href="#" onclick="goToPage({{ page+1 }})">next ›</a></li>
+              {% else %}
+              <li class="page-item disabled"><span class="page-link">next ›</span></li>
+              {% endif %}
+            </ul>
+          </nav>
+          <div class="d-flex align-items-center">
+            <span class="text-muted small me-1">Show</span>
+            <select class="form-select form-select-sm" style="width: auto;" onchange="changePerPage(this.value)">
+              <option value="25" {% if per_page == 25 %}selected{% endif %}>25</option>
+              <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
+              <option value="100" {% if per_page == 100 %}selected{% endif %}>100</option>
+            </select>
+            <span class="text-muted small ms-1">/ Page</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+function applyColumnSort(value) {
+  var url = new URL(window.location.href);
+  url.searchParams.set('sort', value);
+  url.searchParams.set('page', '1');
+  window.location.href = url.toString();
+}
+function applySearch() {
+  var url = new URL(window.location.href);
+  var searchValue = (document.getElementById('searchInput').value || '').trim();
+  if (searchValue) {
+    url.searchParams.set('search', searchValue);
+  } else {
+    url.searchParams.delete('search');
+  }
+  url.searchParams.set('page', '1');
+  window.location.href = url.toString();
+}
+function goToPage(p) {
+  var url = new URL(window.location.href);
+  url.searchParams.set('page', p);
+  window.location.href = url.toString();
+}
+function changePerPage(val) {
+  var url = new URL(window.location.href);
+  url.searchParams.set('per_page', val);
+  url.searchParams.set('page', '1');
+  window.location.href = url.toString();
+}
+function updateRenewalCount(selectEl) {
+  var contractEndId = selectEl.getAttribute('data-contract-end-id');
+  var newValue = parseInt(selectEl.value, 10);
+  fetch('/admin/api/contract-end/' + contractEndId + '/renewal-count', {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({renewal_count: newValue})
+  })
+  .then(function(resp) {
+    if (!resp.ok) throw new Error('저장 실패');
+    return resp.json();
+  })
+  .then(function(data) {
+    selectEl.style.border = '2px solid #2fb344';
+    setTimeout(function() { selectEl.style.border = ''; }, 1500);
+  })
+  .catch(function(err) {
+    alert('저장에 실패했습니다: ' + err.message);
+    window.location.reload();
+  });
+}
+
+function exportContractEndsExcel() {
+  const excelBtn = event.target.closest('button');
+  const url = new URL(window.location.href);
+  const params = new URLSearchParams(url.search);
+  const sort = params.get('sort') || 'dday_asc';
+
+  // 버튼 상태 변경 (로딩 중)
+  if (excelBtn) {
+    excelBtn.disabled = true;
+    excelBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>다운로드 중...';
+    
+    // 3초 후 버튼 복구 (타임아웃 방지)
+    setTimeout(() => {
+      excelBtn.disabled = false;
+      excelBtn.innerHTML = '엑셀 다운로드';
+    }, 3000);
+  }
+  
+  let exportUrl = '/admin/api/contract-end/export-excel?';
+  exportUrl += 'company_id=' + (params.get('company_id') || '');
+  exportUrl += '&dday_filter=' + (params.get('dday_filter') || '');
+  exportUrl += '&memo_filter=' + (params.get('memo_filter') || '');
+  exportUrl += '&role_filter=' + (params.get('role_filter') || '');
+  exportUrl += '&search=' + encodeURIComponent(params.get('search') || '');
+  exportUrl += '&sort=' + encodeURIComponent(sort);
+  
+  // 파일 다운로드
+  fetch(exportUrl)
+    .then(response => {
+      if (!response.ok) throw new Error(`서버 오류: ${response.status}`);
+      return response.blob();
+    })
+    .then(blob => {
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = '계약종료관리_' + new Date().toISOString().split('T')[0] + '.xlsx';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+      
+      // 버튼 복구
+      if (excelBtn) {
+        excelBtn.disabled = false;
+        excelBtn.innerHTML = '엑셀 다운로드';
+      }
+    })
+    .catch(error => {
+      console.error('다운로드 오류:', error);
+      alert(`다운로드 실패: ${error.message}`);
+      // 버튼 복구
+      if (excelBtn) {
+        excelBtn.disabled = false;
+        excelBtn.innerHTML = '엑셀 다운로드';
+      }
+    });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,140 @@
+{# jQuery·Select2 로드 이후(tail 블록) 실행 #}
+<script id="company-search-data" type="application/json">{{ model_view.company_search_items | tojson }}</script>
+<script>
+(function() {
+  'use strict';
+
+  function companyLabel(c) {
+    if (c.code && c.name) {
+      return c.code + ' · ' + c.name;
+    }
+    return c.name || c.code || '';
+  }
+
+  function enrichCompanyOptions($select, companies) {
+    if (!companies.length) {
+      return;
+    }
+    var byId = {};
+    companies.forEach(function(c) {
+      byId[String(c.id)] = c;
+    });
+    $select.find('option').each(function() {
+      var val = $(this).attr('value');
+      if (!val) {
+        return;
+      }
+      var item = byId[val];
+      if (!item) {
+        return;
+      }
+      $(this)
+        .attr('data-code', item.code || '')
+        .attr('data-name', item.name || '')
+        .text(companyLabel(item));
+    });
+  }
+
+  function companyMatcher(params, data) {
+    if ($.trim(params.term) === '') {
+      return data;
+    }
+    if (!data.id) {
+      return null;
+    }
+    var term = params.term.toLowerCase();
+    var text = (data.text || '').toLowerCase();
+    var el = data.element;
+    var code = el ? ($(el).data('code') || '').toString().toLowerCase() : '';
+    var name = el ? ($(el).data('name') || '').toString().toLowerCase() : '';
+    if (text.indexOf(term) > -1 || code.indexOf(term) > -1 || name.indexOf(term) > -1) {
+      return data;
+    }
+    return null;
+  }
+
+  function initCompanySelect2() {
+    if (typeof window.jQuery === 'undefined' || !jQuery.fn.select2) {
+      return false;
+    }
+
+    var $ = jQuery;
+    var $company = $('select.company-search-select[name="company"]');
+    if (!$company.length) {
+      $company = $('select[name="company"]');
+    }
+    if (!$company.length) {
+      return true;
+    }
+    if ($company.data('select2')) {
+      return true;
+    }
+
+    var companies = [];
+    var dataEl = document.getElementById('company-search-data');
+    if (dataEl) {
+      try {
+        companies = JSON.parse(dataEl.textContent || '[]');
+      } catch (e) {
+        console.error('회사 검색 데이터 파싱 실패', e);
+      }
+    }
+    enrichCompanyOptions($company, companies);
+
+    var selectedValue = $company.val();
+    if (!$company.find('option[value=""]').length) {
+      $company.prepend($('<option value=""></option>'));
+    }
+    if (selectedValue) {
+      $company.val(selectedValue);
+    }
+
+    $company.select2({
+      width: '100%',
+      placeholder: '회사 코드 · 회사명으로 검색',
+      allowClear: false,
+      minimumResultsForSearch: 0,
+      dropdownAutoWidth: false,
+      matcher: companyMatcher,
+      language: {
+        noResults: function() {
+          return '일치하는 회사가 없습니다.';
+        },
+        searching: function() {
+          return '검색 중…';
+        }
+      }
+    });
+
+    $company.on('select2:open', function() {
+      setTimeout(function() {
+        var $search = $('.select2-container--open .select2-search__field');
+        if ($search.length) {
+          $search.attr('placeholder', '코드 또는 회사명 입력').trigger('focus');
+        }
+      }, 0);
+    });
+
+    return true;
+  }
+
+  function boot() {
+    if (initCompanySelect2()) {
+      return;
+    }
+    var attempts = 0;
+    var timer = setInterval(function() {
+      attempts += 1;
+      if (initCompanySelect2() || attempts >= 40) {
+        clearInterval(timer);
+      }
+    }, 50);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+})();
+</script>

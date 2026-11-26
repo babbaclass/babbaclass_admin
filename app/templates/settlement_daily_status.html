@@ -1,0 +1,190 @@
+{% extends "sqladmin/layout.html" %}
+
+{% block content %}
+<div class="alert alert-info d-flex align-items-center mb-4" role="alert">
+  <i class="fa-solid fa-info-circle me-2"></i>
+  <div>
+    <strong>안내:</strong> 월별 한 페이지에 일별 누적 매출이 쌓입니다. 매일 <strong>21:00</strong>에 정산(수수료) 기준으로 갱신되며,
+    해당 월 마지막 날 누적 합계는 <strong>소속 원장별 월매출</strong>과 일치합니다. 지사장 본인 행은 분홍색으로 표시됩니다.
+  </div>
+</div>
+
+{% if not has_any_snapshot %}
+<div class="alert alert-warning mb-4" role="alert">
+  {{ selected_year }}년 {{ selected_month_num }}월 스냅샷이 아직 없습니다. 21:00 배치 실행 후 일별 누적 데이터가 표시됩니다.
+</div>
+{% endif %}
+
+<div class="col-12">
+  <div class="card mb-4">
+    <div class="card-header d-flex flex-column flex-md-row align-items-start align-items-md-center justify-content-between gap-2">
+      <div>
+        <h3 class="card-title mb-0">소속 원장별 일별 매출</h3>
+        <p class="text-muted mb-0 small">
+          {% if month_label %}{{ month_label }}{% else %}{{ selected_year }}년 {{ selected_month_num }}월{% endif %} · 매일 21:00 갱신 · 일별 누적
+        </p>
+      </div>
+      <div class="card-actions">
+        <form id="dailySalesForm" method="GET" class="d-flex align-items-center gap-2 flex-wrap">
+          {% if company_id %}
+          <input type="hidden" name="company_id" value="{{ company_id }}">
+          {% endif %}
+          <input type="hidden" name="target_date" id="dailySalesTargetDateInput" value="{{ selected_date or '' }}">
+          <select name="year" id="dailySalesYearSelect" class="form-select" style="width: auto;" aria-label="연도">
+            {% for year in filter_years %}
+            <option value="{{ year }}" {% if year == selected_year|int %}selected{% endif %}>{{ year }}년</option>
+            {% endfor %}
+          </select>
+          <select name="month_num" id="dailySalesMonthSelect" class="form-select" style="width: auto;" aria-label="월">
+            {% for m in range(1, 13) %}
+            <option value="{{ m }}" {% if m == selected_month_num %}selected{% endif %}>{{ m }}월</option>
+            {% endfor %}
+          </select>
+          <button type="submit" name="apply_filter" value="1" class="btn btn-primary">필터 적용</button>
+        </form>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table table-striped mb-0">
+        <thead>
+          <tr>
+            <th style="text-align:center; font-weight:bold;">일자</th>
+            <th style="font-weight:bold;">누적 기간</th>
+            <th style="text-align:right; font-weight:bold;">판매가 총액</th>
+            <th style="text-align:right; font-weight:bold;">배송비 총액</th>
+            <th style="text-align:right; font-weight:bold;">사용된 적립금</th>
+            <th style="text-align:right; font-weight:bold;">실결제총액</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if daily_rows %}
+            {% for row in daily_rows %}
+            <tr class="daily-row {% if row.date == selected_date %}table-active{% else %}clickable-daily-row{% endif %}"
+                data-date="{{ row.date }}" style="cursor: pointer;">
+              <td style="text-align:center; font-weight:bold;">{{ row.day_label }}</td>
+              <td>{{ row.period_label }} 누적</td>
+              <td style="text-align:right;">{{ "{:,}".format(row.summary.sell_price_total) }} 원</td>
+              <td style="text-align:right;">{{ "{:,}".format(row.summary.delivery_total) }} 원</td>
+              <td style="text-align:right;">{{ "{:,}".format(row.summary.used_reserve_total) }} 원</td>
+              <td style="text-align:right;">{{ "{:,}".format(row.summary.actual_payment_total) }} 원</td>
+            </tr>
+            {% endfor %}
+          {% else %}
+          <tr>
+            <td colspan="6" style="text-align:center; padding:2rem; color:#999;">이번 달 일별 누적 데이터가 없습니다.</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h4 class="card-title mb-0">
+        {% if selected_day_label %}
+        {{ selected_day_label }} 기준 소속 원장별 누적
+        {% else %}
+        소속 원장별 누적 상세
+        {% endif %}
+      </h4>
+      {% if period_start and selected_date %}
+      <p class="text-muted mb-0 small">{{ period_start }} ~ {{ selected_date }}</p>
+      {% endif %}
+    </div>
+    {% if not has_snapshot %}
+    <div class="card-body">
+      <div class="text-center text-muted py-4">상단 일자를 선택하거나 스냅샷 생성 후 데이터가 표시됩니다.</div>
+    </div>
+    {% else %}
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table table-striped mb-0">
+        <thead>
+          <tr>
+            <th style="text-align:center; font-weight:bold;">순번</th>
+            <th style="font-weight:bold;">이름</th>
+            <th style="font-weight:bold;">연락처</th>
+            <th style="text-align:right; font-weight:bold;">판매가 총액</th>
+            <th style="text-align:right; font-weight:bold;">배송비 총액</th>
+            <th style="text-align:right; font-weight:bold;">사용된 적립금</th>
+            <th style="text-align:right; font-weight:bold;">실결제총액</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if summary %}
+          <tr style="background-color:#fffacd; font-weight:bold;">
+            <td style="text-align:center;">합계</td>
+            <td colspan="2">{{ period_start }} ~ {{ selected_date }} 누적</td>
+            <td style="text-align:right;">{{ "{:,}".format(summary.sell_price_total) }} 원</td>
+            <td style="text-align:right;">{{ "{:,}".format(summary.delivery_total) }} 원</td>
+            <td style="text-align:right;">{{ "{:,}".format(summary.used_reserve_total) }} 원</td>
+            <td style="text-align:right;">{{ "{:,}".format(summary.actual_payment_total) }} 원</td>
+          </tr>
+          {% endif %}
+          {% if data %}
+            {% for row in data %}
+            {% set is_manager_row = row.is_branch_manager or (branch_manager_user_id and row.user_id == branch_manager_user_id) %}
+            <tr class="{% if is_manager_row %}branch-manager-row{% endif %}">
+              <td style="text-align:center;">{{ row.no }}</td>
+              <td>{% if is_manager_row %}{{ row.name }} <span class="text-muted small">(지사장)</span>{% else %}{{ row.name }}{% endif %}</td>
+              <td>{{ row.phone }}</td>
+              <td style="text-align:right;">{{ "{:,}".format(row.sell_price_total) }} 원</td>
+              <td style="text-align:right;">{{ "{:,}".format(row.delivery_total) }} 원</td>
+              <td style="text-align:right;">{{ "{:,}".format(row.used_reserve_total) }} 원</td>
+              <td style="text-align:right;">{{ "{:,}".format(row.actual_payment_total) }} 원</td>
+            </tr>
+            {% endfor %}
+          {% else %}
+          <tr>
+            <td colspan="7" style="text-align:center; padding:2rem; color:#999;">데이터가 없습니다.</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<style>
+  .table.table-striped tbody tr.branch-manager-row > td,
+  .table.table-striped tbody tr.branch-manager-row > th {
+    --bs-table-accent-bg: #fae5e5;
+    background-color: #fae5e5 !important;
+  }
+  .clickable-daily-row:hover {
+    background-color: #e3f2fd !important;
+  }
+  #dailySalesForm .form-select,
+  #dailySalesForm .btn { font-size: 0.95rem; }
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const form = document.getElementById('dailySalesForm');
+  const yearSelect = document.getElementById('dailySalesYearSelect');
+  const monthSelect = document.getElementById('dailySalesMonthSelect');
+  const targetInput = document.getElementById('dailySalesTargetDateInput');
+
+  if (form && yearSelect && monthSelect) {
+    form.addEventListener('submit', function(event) {
+      const submitter = event.submitter;
+      if (submitter && submitter.name === 'apply_filter' && targetInput) {
+        targetInput.value = '';
+      }
+    });
+  }
+
+  document.querySelectorAll('.clickable-daily-row').forEach(row => {
+    row.addEventListener('click', function() {
+      const targetDate = this.dataset.date;
+      if (!form || !targetInput || !targetDate) {
+        return;
+      }
+      targetInput.value = targetDate;
+      form.submit();
+    });
+  });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,260 @@
+{% extends "sqladmin/layout.html" %}
+
+{% block content %}
+<div class="col-12">
+  <div class="card">
+    <div class="card-header d-flex align-items-center justify-content-between">
+      <h3 class="card-title">바빠 스마트 클래스 <span id="title-year">{{ year }}</span>년 <span id="title-month">{{ "%02d"|format(month) }}</span>월 정산서</h3>
+      <div>
+        <button class="btn btn-outline-secondary btn-sm" onclick="history.back()">&larr; 뒤로</button>
+        <button class="btn btn-primary btn-sm" onclick="window.print()">🖨️ 인쇄</button>
+      </div>
+    </div>
+    <div class="card-body">
+      <style>
+        .month-selector { margin-bottom: 1rem; }
+        .month-button-grid { display: flex; flex-direction: column; gap: 1rem; }
+        .month-year-section { margin-bottom: 0.5rem; }
+        .month-year-title { font-weight: bold; font-size: 1rem; margin-bottom: 0.5rem; color: #333; }
+        .month-buttons { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+        .month-btn { 
+          padding: 0.5rem 1rem; 
+          border: 2px solid #ccc; 
+          background: white; 
+          border-radius: 4px; 
+          cursor: pointer; 
+          font-size: 0.9rem;
+          transition: all 0.2s;
+        }
+        .month-btn:hover { 
+          border-color: #2196f3; 
+          background: #e3f2fd;
+        }
+        .month-btn.active { 
+          background: #2196f3; 
+          color: white; 
+          border-color: #2196f3;
+        }
+        .loading { text-align: center; padding: 2rem; color: #999; }
+        .error-message { color: #d32f2f; padding: 1rem; background: #ffebee; border-radius: 4px; }
+        @media print {
+          .card-header button { display: none; }
+          .card { border: 0; box-shadow: none; }
+          .month-selector { display: none; }
+        }
+      </style>
+
+      <!-- company_id가 있으면 JavaScript 변수로 정의 -->
+      <script>
+        const companyId = {% if company_id %}{{ company_id }}{% else %}null{% endif %};
+      </script>
+
+      <!-- 월 선택 UI: 버튼 그리드 -->
+      <div class="month-selector">
+        <div id="month-select" class="month-button-grid" style="display: none;">
+          <!-- JavaScript에서 동적으로 생성됨 -->
+        </div>
+        <div id="no-data-message" class="loading" style="display: none;">
+          정산 데이터가 없습니다.
+        </div>
+      </div>
+
+      <div id="content-area" class="loading">데이터를 불러오는 중...</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// 모든 사용 가능한 월 데이터 저장
+let allAvailableMonths = [];
+
+async function loadAvailableMonths() {
+  try {
+    let url = '/api/admin/settlement/available-months';
+    if (window.companyId) {
+      url += `?company_id=${window.companyId}`;
+    }
+    
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    if (data.status !== 'success') {
+      showError(data.message || '월별 데이터 조회 실패');
+      return false;
+    }
+    
+    allAvailableMonths = data.available_months || [];
+    
+    if (allAvailableMonths.length === 0) {
+      document.getElementById('month-select').style.display = 'none';
+      document.getElementById('no-data-message').style.display = 'block';
+      document.getElementById('content-area').innerHTML = '';
+      return false;
+    }
+    
+    renderMonthSelector();
+    
+    // 가장 최신 월의 데이터 로드
+    if (allAvailableMonths.length > 0) {
+      const latest = allAvailableMonths[0];
+      loadSettlementData(latest.year, latest.month);
+    }
+    
+    return true;
+  } catch (error) {
+    showError('월별 데이터 조회 중 오류 발생: ' + error.message);
+    return false;
+  }
+}
+
+function renderMonthSelector() {
+  const container = document.getElementById('month-select');
+  container.innerHTML = '';
+  
+  // 년도별로 그룹화
+  const monthsByYear = {};
+  allAvailableMonths.forEach(m => {
+    if (!monthsByYear[m.year]) monthsByYear[m.year] = [];
+    monthsByYear[m.year].push(m.month);
+  });
+  
+  // 년도 내림차순 정렬
+  const years = Object.keys(monthsByYear).map(Number).sort((a, b) => b - a);
+  
+  years.forEach(year => {
+    const yearDiv = document.createElement('div');
+    yearDiv.className = 'month-year-section';
+    
+    const yearTitle = document.createElement('div');
+    yearTitle.className = 'month-year-title';
+    yearTitle.textContent = `${year}년`;
+    yearDiv.appendChild(yearTitle);
+    
+    const buttonsDiv = document.createElement('div');
+    buttonsDiv.className = 'month-buttons';
+    
+    // 월 내림차순 정렬
+    const months = monthsByYear[year].sort((a, b) => b - a);
+    
+    months.forEach(month => {
+      const btn = document.createElement('button');
+      btn.className = 'month-btn';
+      btn.textContent = `${String(month).padStart(2, '0')}월`;
+      btn.setAttribute('data-year', year);
+      btn.setAttribute('data-month', month);
+      btn.onclick = function() {
+        selectMonth(year, month);
+      };
+      buttonsDiv.appendChild(btn);
+    });
+    
+    yearDiv.appendChild(buttonsDiv);
+    container.appendChild(yearDiv);
+  });
+  
+  container.style.display = 'block';
+}
+
+function selectMonth(year, month) {
+  // 모든 버튼에서 active 클래스 제거
+  document.querySelectorAll('.month-btn').forEach(btn => {
+    btn.classList.remove('active');
+  });
+  
+  // 선택된 버튼에 active 클래스 추가
+  const buttons = document.querySelectorAll(
+    `[data-year="${year}"][data-month="${month}"]`
+  );
+  buttons.forEach(btn => btn.classList.add('active'));
+  
+  loadSettlementData(year, month);
+}
+
+async function loadSettlementData(year, month) {
+  try {
+    document.getElementById('content-area').innerHTML = '<div class="loading">데이터를 불러오는 중...</div>';
+    
+    // 사이드바 AJAX와 동일한 HTML 엔드포인트 호출
+    let url = `/api/admin/settlement-content/settlement-statement-detail?year=${year}&month=${month}`;
+    if (window.companyId) {
+      url += `&company_id=${window.companyId}`;
+    }
+    
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    if (data.error) {
+      showError(data.error);
+      return;
+    }
+    
+    document.getElementById('content-area').innerHTML = data.html || '';
+    document.getElementById('title-year').textContent = year;
+    document.getElementById('title-month').textContent = String(month).padStart(2, '0');
+  } catch (error) {
+    showError('데이터 로드 중 오류 발생: ' + error.message);
+  }
+}
+
+function showError(message) {
+  document.getElementById('content-area').innerHTML = `<div class="error-message">${message}</div>`;
+}
+
+// 로딩 오버레이 숨기기 (뒤로가기 대응)
+function hideLoading() {
+  const overlay = document.getElementById('adminLoadingOverlay');
+  if (overlay) {
+    overlay.classList.remove('show');
+  }
+  if (window.AdminLoading && window.AdminLoading.hide) {
+    window.AdminLoading.hide();
+  }
+}
+
+// 페이지 로드 시 로딩 숨기기
+window.addEventListener('pageshow', hideLoading);
+document.addEventListener('DOMContentLoaded', hideLoading);
+
+// 사이드바 메뉴 활성화 (settlement-statement)
+document.addEventListener('DOMContentLoaded', function() {
+  hideLoading();
+  
+  console.log('[Settlement Statement] Menu activation script started');
+  
+  const currentPath = window.location.pathname;
+  console.log('[Settlement Statement] Current path:', currentPath);
+  
+  const sidebarLinks = document.querySelectorAll('.navbar-nav .nav-link, .sidebar .nav-link');
+  console.log('[Settlement Statement] Found sidebar links:', sidebarLinks.length);
+  
+  sidebarLinks.forEach((link, index) => {
+    const href = link.getAttribute('href');
+    console.log(`[Settlement Statement] Link ${index}:`, href);
+    
+    // settlement-statement 메뉴만 활성화 (settlement-statement-detail은 제외)
+    // 정확한 경로 매칭: /settlement-statement 또는 /settlement-statement?
+    const isSettlementStatementPage = currentPath.endsWith('/settlement-statement') || 
+                                       currentPath.includes('/settlement-statement?');
+    const isSettlementStatementLink = href && (href.endsWith('/settlement-statement') || 
+                                                href.includes('/settlement-statement?'));
+    
+    console.log(`[Settlement Statement] Link ${index} - isPage:${isSettlementStatementPage}, isLink:${isSettlementStatementLink}`);
+    
+    if (isSettlementStatementPage && isSettlementStatementLink) {
+      console.log(`[Settlement Statement] Activating link ${index}:`, href);
+      link.classList.add('active');
+      // 상위 dropdown도 열기
+      const dropdown = link.closest('.dropdown');
+      if (dropdown) {
+        dropdown.classList.add('show');
+        const dropdownToggle = dropdown.querySelector('.dropdown-toggle');
+        if (dropdownToggle) dropdownToggle.classList.add('active');
+      }
+    }
+  });
+  
+  console.log('[Settlement Statement] Menu activation complete');
+  loadAvailableMonths();
+});
+</script>
+{% endblock %}

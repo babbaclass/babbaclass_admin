@@ -1,0 +1,209 @@
+{% extends "sqladmin/layout.html" %}
+
+{% block content %}
+<div class="col-12">
+  <div class="card">
+    <div class="card-header d-flex align-items-center justify-content-between">
+      <h3 class="card-title">바빠 스마트 클래스 {{ year }}년 {{ "%02d"|format(month) }}월 정산서</h3>
+      <div>
+        <button onclick="history.back()" class="btn btn-outline-secondary btn-sm">&larr; 뒤로</button>
+      </div>
+    </div>
+    <div class="card-body">
+      <style>
+        @media print {
+          .card-header { display: none; }
+          .card { border: 0; box-shadow: none; }
+        }
+        .loading { text-align: center; padding: 2rem; color: #999; }
+        .error-message { color: #d32f2f; padding: 1rem; background: #ffebee; border-radius: 4px; }
+      </style>
+
+    <div id="content-area" class="loading">데이터를 불러오는 중...</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const year = {{ year }};
+const month = {{ month }};
+const companyId = {% if company_id %}{{ company_id }}{% else %}null{% endif %};
+
+async function loadSettlementDetail() {
+  try {
+    // company_id가 있으면 쿼리에 포함
+    let url = `/api/admin/settlement-content/settlement-statement-detail?year=${year}&month=${month}`;
+    if (companyId) {
+      url += `&company_id=${companyId}`;
+    }
+    
+    // 사이드바 AJAX와 동일한 HTML 엔드포인트 호출
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    if (data.error) {
+      showError(data.error);
+      return;
+    }
+    
+    document.getElementById('content-area').innerHTML = data.html || '<div class="error-message">정산 데이터가 없습니다.</div>';
+    
+    // HTML 삽입 후 확인 상태 조회하여 버튼 비활성화
+    await checkConfirmationStatus();
+  } catch (error) {
+    showError('데이터 로드 중 오류 발생: ' + error.message);
+  }
+}
+
+// 정산서 확인 상태 조회
+async function checkConfirmationStatus() {
+  try {
+    let url = `/api/admin/settlement/check-statement-confirmation?year=${year}&month=${month}`;
+    if (companyId) {
+      url += `&company_id=${companyId}`;
+    }
+    
+    const checkResponse = await fetch(url);
+    const checkData = await checkResponse.json();
+    
+    if (checkData.is_confirmed) {
+      const button = document.querySelector('.btn-success');
+      if (button) {
+        button.disabled = true;
+        button.textContent = '확인 완료';
+        button.classList.remove('btn-success');
+        button.classList.add('btn-secondary');
+      }
+    } else if (checkData.is_issued === false) {
+      const button = document.querySelector('.btn-success');
+      if (button) {
+        button.disabled = true;
+        button.textContent = '발행 후 확인 가능';
+        button.classList.remove('btn-success');
+        button.classList.add('btn-secondary');
+      }
+    }
+  } catch (error) {
+    console.error('확인 상태 조회 실패:', error);
+  }
+}
+
+function showError(message) {
+  document.getElementById('content-area').innerHTML = `<div class="error-message">${message}</div>`;
+}
+
+// 정산서 확인 함수 (전역 스코프)
+async function confirmSettlement() {
+  try {
+    // 버튼 찾기
+    const button = event && event.target ? event.target : document.querySelector('.btn-success');
+    
+    // 버튼 비활성화 및 텍스트 변경
+    if (button) {
+      button.disabled = true;
+      button.textContent = '확인 중...';
+    }
+    
+    const response = await fetch('/api/admin/settlement/confirm-statement', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ year, month })
+    });
+    
+    const data = await response.json();
+    
+    if (data.status === 'success') {
+      const popup = data.popup_message || '정산서 확인이 저장되었습니다.';
+      alert(popup);
+      
+      // 버튼 상태 변경
+      if (button) {
+        button.textContent = '확인 완료';
+        button.classList.remove('btn-success');
+        button.classList.add('btn-secondary');
+      }
+    } else {
+      alert('오류: ' + (data.message || '정산서 확인 저장 실패'));
+      // 실패 시 버튼 다시 활성화
+      if (button) {
+        button.disabled = false;
+        button.textContent = '정산서를 확인하였습니다.';
+      }
+    }
+  } catch (error) {
+    alert('오류 발생: ' + error.message);
+    // 에러 시 버튼 다시 활성화
+    const button = event && event.target ? event.target : document.querySelector('.btn-success');
+    if (button) {
+      button.disabled = false;
+      button.textContent = '정산서를 확인하였습니다.';
+    }
+  }
+}
+
+// 엑셀 다운로드 함수
+function downloadExcel() {
+  if (!year || !month) {
+    alert('정산서 년도와 월 정보가 없습니다.');
+    return;
+  }
+  
+  let url = `/api/admin/settlement/export-statement-xlsx?year=${year}&month=${month}`;
+  if (companyId) {
+    url += `&company_id=${companyId}`;
+  }
+  
+  window.open(url, '_blank');
+}
+
+// 메뉴 활성화 함수
+function activateSettlementMenu() {
+  // 기존 활성 메뉴 제거
+  document.querySelectorAll('.navbar-nav .nav-link.active, .navbar-nav .dropdown-toggle.active').forEach(el => {
+    el.classList.remove('active');
+  });
+  
+  // "정산서" 메뉴만 활성화
+  const navLinks = document.querySelectorAll('.navbar-nav a');
+  for (let link of navLinks) {
+    const href = link.getAttribute('href') || '';
+    const text = link.textContent.trim();
+    
+    // "정산서" 메뉴 찾기
+    if (text === '정산서' || href.includes('settlement-statement')) {
+      link.classList.add('active');
+      
+      // 부모 드롭다운도 활성화
+      const dropdown = link.closest('.nav-item.dropdown, [class*="dropdown"]');
+      if (dropdown) {
+        const toggle = dropdown.querySelector('.dropdown-toggle, [role="button"]');
+        if (toggle) {
+          toggle.classList.add('active');
+          toggle.setAttribute('aria-expanded', 'true');
+        }
+      }
+      break;
+    }
+  }
+}
+
+// 페이지 로드 시 초기화
+document.addEventListener('DOMContentLoaded', function() {
+  loadSettlementDetail();
+  
+  // 약간의 지연 후 메뉴 활성화 (DOM 완전 렌더링 후)
+  setTimeout(() => {
+    activateSettlementMenu();
+  }, 100);
+});
+
+// 페이지 포커스 시에도 메뉴 활성화 유지
+window.addEventListener('focus', function() {
+  setTimeout(() => {
+    activateSettlementMenu();
+  }, 50);
+});
+</script>
+{% endblock %}

@@ -1,0 +1,89 @@
+{% extends "sqladmin/layout.html" %}
+
+{% block content %}
+<div class="col-12">
+  <div class="card">
+    <div class="card-header d-flex flex-column flex-md-row align-items-start align-items-md-center gap-3">
+      <div>
+        <h3 class="card-title">지사장 정산서 확인</h3>
+        <p class="text-muted mb-0">
+          정산서를 확인한 지사장(role_id = 2)의 확인 내역을 확인합니다.
+          당월 정산서는 익월부터 조회·확인 가능합니다.
+          {% if max_confirmable_period %}(기준: {{ max_confirmable_period }}까지){% endif %}
+        </p>
+      </div>
+      <div class="ms-md-auto text-muted">
+        총 {{ total_confirmations }}건
+      </div>
+    </div>
+    <div class="card-body border-bottom">
+      <form method="get" class="row g-3 align-items-end">
+        <div class="col-md-4">
+          <label class="form-label">회사(지사)</label>
+          <select class="form-select" name="company_id">
+            <option value="">전체</option>
+            {% for company in companies %}
+            <option value="{{ company.company_id }}" {% if company.company_id == selected_company_id %}selected{% endif %}>{{ company.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">연도</label>
+          <select class="form-select" name="year">
+            <option value="">전체</option>
+            {% for year in available_years %}
+            <option value="{{ year }}" {% if year == selected_year %}selected{% endif %}>{{ year }}년</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">월</label>
+          <select class="form-select" name="month">
+            <option value="">전체</option>
+            {% for month in available_months %}
+            <option value="{{ month }}" {% if month == selected_month %}selected{% endif %}>{{ '%02d'|format(month) }}월</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2 text-end">
+          <button type="submit" class="btn btn-primary w-100">필터 적용</button>
+        </div>
+      </form>
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-hover card-table table-vcenter">
+          <thead>
+            <tr>
+              <th>지사명</th>
+              <th>지사장</th>
+              <th>정산확인 상태</th>
+              <th>년/월</th>
+              <th>확인일시</th>
+              <th>정산서</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+            <tr>
+              <td>{{ row.company }}</td>
+              <td>{{ row.manager }}</td>
+              <td>{{ row.confirmation_status }}</td>
+              <td>{{ row.year_month }}</td>
+              <td>{{ row.confirmed_at_kst }}</td>
+              <td>
+                <a href="{{ row.statement_url }}" class="btn btn-sm btn-ghost-primary">상세보기</a>
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="6" class="text-center text-muted py-4">조회된 확인 기록이 없습니다.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

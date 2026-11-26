@@ -1,0 +1,109 @@
+name: Backfill Settlement Confirmation Categories
+
+on:
+  workflow_dispatch:
+    inputs:
+      kst_date:
+        description: "KST 확인일만 보정 (비우면 전체)"
+        required: false
+        default: "2026-06-10"
+      dry_run_only:
+        description: "dry-run만 실행 (true면 DB 미반영)"
+        required: false
+        default: "false"
+
+jobs:
+  backfill:
+    name: Migrate + backfill confirmation categories
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Authenticate with Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: projects/1024083500192/locations/global/workloadIdentityPools/github-pool/providers/github-actions-provider
+          service_account: github-actions@astute-window-472313-g9.iam.gserviceaccount.com
+
+      - name: Start Cloud SQL Auth Proxy
+        run: |
+          PROXY_VERSION="v2.11.3"
+          curl -L -o cloud-sql-proxy "https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/${PROXY_VERSION}/cloud-sql-proxy.linux.amd64"
+          chmod +x cloud-sql-proxy
+          nohup ./cloud-sql-proxy "${{ secrets.CLOUD_SQL_INSTANCE }}" --port 3306 > cloud-sql-proxy.log 2>&1 &
+          for i in $(seq 1 30); do
+            if python3 -c "import socket; s=socket.create_connection(('127.0.0.1',3306),2); s.close()" 2>/dev/null; then
+              echo "✓ Cloud SQL Proxy is ready"
+              exit 0
+            fi
+            echo "  Waiting for Cloud SQL Proxy... ($i/30)"
+            sleep 2
+          done
+          cat cloud-sql-proxy.log || true
+          exit 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Alembic upgrade (090 confirmation_category)
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: "3306"
+          CLOUD_SQL_HOST: 127.0.0.1
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          alembic current || true
+          alembic upgrade head
+          alembic current
+
+      - name: Dry-run backfill
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: "3306"
+          CLOUD_SQL_HOST: 127.0.0.1
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          ARGS=""
+          if [ -n "${{ github.event.inputs.kst_date }}" ]; then
+            ARGS="--date ${{ github.event.inputs.kst_date }}"
+          fi
+          python scripts/backfill_settlement_confirmation_categories.py $ARGS --verbose
+
+      - name: Apply backfill
+        if: github.event.inputs.dry_run_only != 'true'
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: "3306"
+          CLOUD_SQL_HOST: 127.0.0.1
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          ARGS="--apply"
+          if [ -n "${{ github.event.inputs.kst_date }}" ]; then
+            ARGS="$ARGS --date ${{ github.event.inputs.kst_date }}"
+          fi
+          python scripts/backfill_settlement_confirmation_categories.py $ARGS --verbose
+
+          echo "--- 전체 기록 category 미설정분 추가 보정 ---"
+          python scripts/backfill_settlement_confirmation_categories.py --apply

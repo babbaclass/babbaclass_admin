@@ -1,0 +1,836 @@
+{% extends "sqladmin/layout.html" %}
+
+{% macro sortable_th(label, options, align='', text_align='', min_width='') %}
+<th rowspan="2" class="{{ align }}" style="font-weight: bold;{% if text_align %} text-align: {{ text_align }};{% endif %}{% if min_width %} min-width: {{ min_width }};{% endif %} vertical-align: middle;">
+  <div class="d-flex align-items-center gap-1 {% if text_align == 'center' %}justify-content-center{% elif text_align == 'right' %}justify-content-end{% endif %}">
+    <span>{{ label }}</span>
+    <div class="dropdown">
+      <button type="button"
+              class="btn btn-sm btn-link p-0 lh-1 column-sort-btn text-muted settlement-sort-btn"
+              data-sort-column="{{ options[0][0].split('_')[0] }}"
+              data-bs-toggle="dropdown"
+              aria-expanded="false"
+              title="정렬"
+              onclick="event.stopPropagation();">
+        <i class="fa-solid fa-caret-down"></i>
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+        {% for value, opt_label in options %}
+        <li>
+          <a class="dropdown-item settlement-sort-item"
+             href="#"
+             data-sort-value="{{ value }}"
+             onclick="applySettlementSort('{{ value }}'); return false;">{{ opt_label }}</a>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</th>
+{% endmacro %}
+
+{% block content %}
+<div class="row">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h3 class="card-title mb-0">{{ year }}년 {{ month_name }} 요약</h3>
+        <div class="d-flex align-items-center gap-2 ms-auto flex-wrap justify-content-end">
+          {% with search_input_id='settlementSummarySearchInput', search_button_id='settlementSummarySearchBtn', search_placeholder='지역 · 이름 · 정산확인 · 정산결과 · 정산유형 · 계좌 · 금액 · 지급일 · 비고', show_nav_buttons=true, show_reset=false %}
+          {% include 'partials/admin_search_bar.html' %}
+          {% endwith %}
+          <button type="button" class="btn btn-dark" onclick="downloadMonthlyExcel({{ year }}, {{ month }})">
+            <i class="fa-solid fa-file-excel me-1"></i>엑셀 다운로드
+          </button>
+        </div>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover card-table table-vcenter mb-0">
+          <thead class="table-light">
+            <tr>
+              {{ sortable_th('지역', [('region_asc', 'ㄱㄴㄷ 순'), ('region_desc', 'ㄱㄴㄷ 역순')]) }}
+              {{ sortable_th('이름', [('name_asc', 'ㄱㄴㄷ 순'), ('name_desc', 'ㄱㄴㄷ 역순')]) }}
+              {{ sortable_th('정산확인', [('confirmation_asc', '지급 → 이월 → 미지급'), ('confirmation_desc', '미지급 → 이월 → 지급')], text_align='center') }}
+              {{ sortable_th('정산결과', [('result_asc', '지급완료 → 공란'), ('result_desc', '공란 → 지급완료')], text_align='center') }}
+              {{ sortable_th('정산유형', [('type_asc', '개인 → 사업자'), ('type_desc', '사업자 → 개인')], text_align='center') }}
+              <th colspan="2" style="font-weight: bold; text-align: center;">계좌 정보</th>
+              {{ sortable_th('금액', [('amount_desc', '높은순'), ('amount_asc', '낮은순')], text_align='right') }}
+              {{ sortable_th('지급일', [('payment_asc', '빠른순'), ('payment_desc', '늦은순')], min_width='150px') }}
+              <th rowspan="2" style="font-weight: bold; min-width: 180px;">비고</th>
+            </tr>
+            <tr>
+              <th style="font-weight: bold;">은행</th>
+              <th style="font-weight: bold;">계좌번호</th>
+            </tr>
+          </thead>
+          <tbody id="settlementSummaryTableBody">
+            {% if rows %}
+              {% for row in rows %}
+              <tr class="settlement-row-clickable"
+                  role="button"
+                  tabindex="0"
+                  data-href="/admin/settlement-statement-detail?year={{ year }}&month={{ month }}&company_id={{ row.company_id }}"
+                  data-region="{{ row.region }}"
+                  data-name="{{ row.name }}"
+                  data-bank-name="{{ row.bank_name }}"
+                  data-bank-account="{{ row.bank_account }}"
+                  data-confirmation="{{ row.confirmation_status }}"
+                  data-result="{{ row.settlement_result }}"
+                  data-settlement-type="{{ row.settlement_type }}"
+                  data-amount="{{ row.amount }}"
+                  data-payment-date="{{ row.payment_date or '' }}"
+                  data-remark="{{ row.remark or '' }}"
+                  title="{{ year }}년 {{ month_name }} 정산서 보기">
+                <td class="settlement-searchable settlement-cell-region">{{ row.region }}</td>
+                <td class="settlement-searchable settlement-cell-name"><span class="settlement-name-link">{{ row.name }}</span></td>
+                <td class="settlement-searchable settlement-cell-confirmation" style="text-align: center;">
+                  {% if row.confirmation_status == '지급' %}
+                    <span class="badge bg-success-subtle text-success confirmation-badge">지급</span>
+                  {% elif row.confirmation_status == '이월' %}
+                    <span class="badge bg-warning-subtle text-warning confirmation-badge">이월</span>
+                  {% else %}
+                    <span class="badge bg-secondary-subtle text-secondary confirmation-badge">미지급</span>
+                  {% endif %}
+                </td>
+                <td class="settlement-searchable settlement-cell-result" style="text-align: center;">
+                  <span class="settlement-result-cell">{{ row.settlement_result }}</span>
+                </td>
+                <td class="settlement-searchable settlement-cell-type" style="text-align: center;">{{ row.settlement_type }}</td>
+                <td class="settlement-searchable settlement-cell-bank">{{ row.bank_name }}</td>
+                <td class="settlement-searchable settlement-cell-account">{{ row.bank_account }}</td>
+                <td class="settlement-searchable settlement-cell-amount" style="text-align: right;">{{ "{:,}".format(row.amount) }}</td>
+                <td class="settlement-cell-payment">
+                  <input type="date"
+                         class="form-control form-control-sm payment-date-input"
+                         data-company-id="{{ row.company_id }}"
+                         value="{{ row.payment_date }}"
+                         title="수수료 지급일 선택">
+                </td>
+                <td class="settlement-cell-remark">
+                  <input type="text"
+                         class="form-control form-control-sm remark-input"
+                         data-company-id="{{ row.company_id }}"
+                         value="{{ row.remark }}"
+                         placeholder="비고 입력"
+                         maxlength="255">
+                </td>
+              </tr>
+              {% endfor %}
+            {% else %}
+            <tr>
+              <td colspan="10" style="text-align: center; padding: 2rem; color: #999;">정산 데이터가 없습니다.</td>
+            </tr>
+            {% endif %}
+          </tbody>
+          {% if rows %}
+          <tfoot>
+            <tr class="table-warning" style="font-weight: bold;">
+              <td colspan="7" style="text-align: center;">정산 금액 합</td>
+              <td style="text-align: right;">{{ "{:,}".format(grand_total) }} 원</td>
+              <td colspan="2"></td>
+            </tr>
+          </tfoot>
+          {% endif %}
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+.card {
+  border: none;
+  border-radius: 0.5rem;
+}
+
+.card-header {
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.card-title {
+  font-weight: 600;
+}
+
+.settlement-row-clickable {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.settlement-row-clickable:hover,
+.settlement-row-clickable:focus {
+  background-color: #f0f7ff;
+  outline: none;
+}
+
+.settlement-name-link {
+  color: #206bc4;
+  text-decoration: none;
+}
+
+.settlement-row-clickable:hover .settlement-name-link,
+.settlement-row-clickable:focus .settlement-name-link {
+  text-decoration: underline;
+}
+
+.confirmation-badge {
+  font-weight: 600;
+  min-width: 52px;
+}
+
+.settlement-result-cell {
+  font-weight: 600;
+  color: #206bc4;
+  min-width: 64px;
+  display: inline-block;
+}
+
+.payment-date-input,
+.remark-input {
+  cursor: text;
+}
+
+.payment-date-input {
+  min-width: 150px;
+  max-width: 170px;
+}
+
+.remark-input {
+  min-width: 180px;
+}
+
+.admin-search-bar .form-control {
+  width: 200px;
+}
+
+.branch-search-mark {
+  background-color: #fff3cd;
+  color: #212529;
+  padding: 0 2px;
+  border-radius: 2px;
+  font-weight: 600;
+}
+
+tr.settlement-row-clickable.branch-search-match {
+  background-color: #fffbea;
+}
+
+tr.settlement-row-clickable.branch-search-current {
+  background-color: #ffe69c;
+  outline: 2px solid #ffc107;
+  outline-offset: -2px;
+}
+
+.column-sort-btn {
+  font-size: 0.95rem;
+  text-decoration: none !important;
+}
+
+.column-sort-btn.text-primary {
+  font-weight: 700;
+}
+
+thead th {
+  white-space: nowrap;
+  vertical-align: middle;
+  font-size: 0.95rem;
+}
+
+thead .dropdown-menu {
+  font-size: 0.95rem;
+}
+
+thead .dropdown-item {
+  font-size: 0.95rem;
+}
+
+thead .dropdown-item.active {
+  background-color: #e7f1ff;
+  color: #0d6efd;
+}
+
+.payment-date-input:focus,
+.remark-input:focus {
+  background-color: #fff;
+}
+
+.payment-date-input.is-saving,
+.remark-input.is-saving {
+  opacity: 0.7;
+}
+
+.payment-date-input.is-saved,
+.remark-input.is-saved {
+  border-color: #28a745;
+}
+
+.payment-date-input.is-error,
+.remark-input.is-error {
+  border-color: #dc3545;
+}
+</style>
+
+<script>
+const SUMMARY_YEAR = {{ year }};
+const SUMMARY_MONTH = {{ month }};
+
+const CONFIRMATION_ORDER = { '지급': 0, '이월': 1, '미지급': 2 };
+const TYPE_ORDER = { '개인': 0, '개인/사업자': 1, '사업자': 2 };
+let settlementCurrentSort = 'amount_desc';
+
+function compareAmountDesc(rowA, rowB) {
+  const amountA = parseFloat(rowA.dataset.amount) || 0;
+  const amountB = parseFloat(rowB.dataset.amount) || 0;
+  return amountB - amountA;
+}
+
+function comparePaymentDate(rowA, rowB, ascending) {
+  const dateA = rowA.dataset.paymentDate || '';
+  const dateB = rowB.dataset.paymentDate || '';
+  const emptyA = !dateA;
+  const emptyB = !dateB;
+  if (emptyA && emptyB) return 0;
+  if (emptyA) return 1;
+  if (emptyB) return -1;
+  if (dateA === dateB) return 0;
+  if (ascending) return dateA < dateB ? -1 : 1;
+  return dateA > dateB ? -1 : 1;
+}
+
+function compareSettlementRows(rowA, rowB, sortKey) {
+  let primary = 0;
+
+  switch (sortKey) {
+    case 'region_asc':
+      primary = (rowA.dataset.region || '').localeCompare(rowB.dataset.region || '', 'ko');
+      return primary;
+    case 'region_desc':
+      primary = (rowB.dataset.region || '').localeCompare(rowA.dataset.region || '', 'ko');
+      return primary;
+    case 'name_asc':
+      primary = (rowA.dataset.name || '').localeCompare(rowB.dataset.name || '', 'ko');
+      return primary;
+    case 'name_desc':
+      primary = (rowB.dataset.name || '').localeCompare(rowA.dataset.name || '', 'ko');
+      return primary;
+    case 'confirmation_asc':
+      primary = (CONFIRMATION_ORDER[rowA.dataset.confirmation] ?? 99)
+        - (CONFIRMATION_ORDER[rowB.dataset.confirmation] ?? 99);
+      break;
+    case 'confirmation_desc':
+      primary = (CONFIRMATION_ORDER[rowB.dataset.confirmation] ?? 99)
+        - (CONFIRMATION_ORDER[rowA.dataset.confirmation] ?? 99);
+      break;
+    case 'result_asc': {
+      const rankA = rowA.dataset.result === '지급완료' ? 0 : 1;
+      const rankB = rowB.dataset.result === '지급완료' ? 0 : 1;
+      primary = rankA - rankB;
+      break;
+    }
+    case 'result_desc': {
+      const rankA = rowA.dataset.result === '지급완료' ? 0 : 1;
+      const rankB = rowB.dataset.result === '지급완료' ? 0 : 1;
+      primary = rankB - rankA;
+      break;
+    }
+    case 'type_asc':
+      primary = (TYPE_ORDER[rowA.dataset.settlementType] ?? 99)
+        - (TYPE_ORDER[rowB.dataset.settlementType] ?? 99);
+      break;
+    case 'type_desc':
+      primary = (TYPE_ORDER[rowB.dataset.settlementType] ?? 99)
+        - (TYPE_ORDER[rowA.dataset.settlementType] ?? 99);
+      break;
+    case 'amount_desc':
+      return compareAmountDesc(rowA, rowB);
+    case 'amount_asc': {
+      const amountA = parseFloat(rowA.dataset.amount) || 0;
+      const amountB = parseFloat(rowB.dataset.amount) || 0;
+      return amountA - amountB;
+    }
+    case 'payment_asc':
+      primary = comparePaymentDate(rowA, rowB, true);
+      break;
+    case 'payment_desc':
+      primary = comparePaymentDate(rowA, rowB, false);
+      break;
+    default:
+      return compareAmountDesc(rowA, rowB);
+  }
+
+  if (primary !== 0) return primary;
+  return compareAmountDesc(rowA, rowB);
+}
+
+function updateSettlementSortUi(sortKey) {
+  document.querySelectorAll('.settlement-sort-item').forEach(function(item) {
+    item.classList.toggle('active', item.getAttribute('data-sort-value') === sortKey);
+  });
+
+  const activeColumn = sortKey.split('_')[0];
+  document.querySelectorAll('.settlement-sort-btn').forEach(function(btn) {
+    const isActive = btn.getAttribute('data-sort-column') === activeColumn;
+    btn.classList.toggle('text-primary', isActive);
+    btn.classList.toggle('text-muted', !isActive);
+  });
+}
+
+function applySettlementSort(sortKey) {
+  const tbody = document.querySelector('.table tbody');
+  if (!tbody) return;
+
+  const rows = Array.from(document.querySelectorAll('.settlement-row-clickable'));
+  if (!rows.length) return;
+
+  settlementCurrentSort = sortKey;
+  rows.sort(function(rowA, rowB) {
+    return compareSettlementRows(rowA, rowB, sortKey);
+  });
+
+  rows.forEach(function(row) {
+    tbody.appendChild(row);
+  });
+
+  updateSettlementSortUi(sortKey);
+}
+
+(function() {
+  function navigateToStatement(row, event) {
+    if (event && event.target.closest('.payment-date-input, .remark-input, .column-sort-btn, .dropdown-menu, .settlement-sort-item, .admin-search-bar')) {
+      return;
+    }
+    const href = row.getAttribute('data-href');
+    if (href) {
+      window.location.href = href;
+    }
+  }
+
+  document.querySelectorAll('.settlement-row-clickable').forEach(function(row) {
+    row.addEventListener('click', function(event) {
+      navigateToStatement(row, event);
+    });
+    row.addEventListener('keydown', function(event) {
+      if (event.target.closest('.payment-date-input, .remark-input')) {
+        return;
+      }
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        navigateToStatement(row, event);
+      }
+    });
+  });
+})();
+
+(function() {
+  const tbody = document.getElementById('settlementSummaryTableBody');
+  if (!tbody) return;
+
+  const searchInput = document.getElementById('settlementSummarySearchInput');
+  const searchBtn = document.getElementById('settlementSummarySearchBtn');
+  const prevBtn = document.getElementById('branchSearchPrev');
+  const nextBtn = document.getElementById('branchSearchNext');
+  const statusEl = document.getElementById('branchSearchStatus');
+
+  const rows = Array.from(tbody.querySelectorAll('tr.settlement-row-clickable'));
+  rows.forEach(function(row) {
+    row.querySelectorAll('.settlement-searchable').forEach(function(cell) {
+      cell.dataset.originalHtml = cell.innerHTML;
+    });
+  });
+
+  let matchedRows = [];
+  let currentIndex = 0;
+
+  function escapeRegex(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function highlightText(text, query) {
+    if (!query) return text;
+    const re = new RegExp(escapeRegex(query), 'gi');
+    return text.replace(re, function(match) {
+      return '<mark class="branch-search-mark">' + match + '</mark>';
+    });
+  }
+
+  function restoreCells() {
+    rows.forEach(function(row) {
+      row.classList.remove('branch-search-match', 'branch-search-current');
+      row.querySelectorAll('.settlement-searchable').forEach(function(cell) {
+        if (cell.dataset.originalHtml !== undefined) {
+          cell.innerHTML = cell.dataset.originalHtml;
+        }
+      });
+    });
+  }
+
+  function formatAmount(value) {
+    const amount = parseFloat(value);
+    if (Number.isNaN(amount)) return '0';
+    return amount.toLocaleString('en-US');
+  }
+
+  function getPaymentDateValue(row) {
+    const input = row.querySelector('.payment-date-input');
+    return (input && input.value) || row.dataset.paymentDate || '';
+  }
+
+  function getRemarkValue(row) {
+    const input = row.querySelector('.remark-input');
+    return (input && input.value) || row.dataset.remark || '';
+  }
+
+  function getRowSearchValues(row) {
+    const amount = row.dataset.amount || '0';
+    return [
+      row.dataset.region || '',
+      row.dataset.name || '',
+      row.dataset.confirmation || '',
+      row.dataset.result || '',
+      row.dataset.settlementType || '',
+      row.dataset.bankName || '',
+      row.dataset.bankAccount || '',
+      amount,
+      formatAmount(amount),
+      getPaymentDateValue(row),
+      getRemarkValue(row),
+    ];
+  }
+
+  function rebuildRegionCell(row, query) {
+    const cell = row.querySelector('.settlement-cell-region');
+    if (!cell) return;
+    cell.innerHTML = highlightText(row.dataset.region || '', query);
+  }
+
+  function rebuildNameCell(row, query) {
+    const cell = row.querySelector('.settlement-cell-name');
+    if (!cell) return;
+    cell.innerHTML = '<span class="settlement-name-link">' + highlightText(row.dataset.name || '', query) + '</span>';
+  }
+
+  function rebuildBankCell(row, query) {
+    const cell = row.querySelector('.settlement-cell-bank');
+    if (!cell) return;
+    cell.innerHTML = highlightText(row.dataset.bankName || '', query);
+  }
+
+  function rebuildAccountCell(row, query) {
+    const cell = row.querySelector('.settlement-cell-account');
+    if (!cell) return;
+    cell.innerHTML = highlightText(row.dataset.bankAccount || '', query);
+  }
+
+  function rebuildConfirmationCell(row, query) {
+    const cell = row.querySelector('.settlement-cell-confirmation');
+    if (!cell) return;
+    const status = row.dataset.confirmation || '미지급';
+    let badgeClass = 'bg-secondary-subtle text-secondary';
+    if (status === '지급') badgeClass = 'bg-success-subtle text-success';
+    else if (status === '이월') badgeClass = 'bg-warning-subtle text-warning';
+    cell.innerHTML = '<span class="badge ' + badgeClass + ' confirmation-badge">' + highlightText(status, query) + '</span>';
+  }
+
+  function rebuildResultCell(row, query) {
+    const cell = row.querySelector('.settlement-cell-result');
+    if (!cell) return;
+    const result = row.dataset.result || '';
+    cell.innerHTML = '<span class="settlement-result-cell">' + highlightText(result, query) + '</span>';
+  }
+
+  function rebuildTypeCell(row, query) {
+    const cell = row.querySelector('.settlement-cell-type');
+    if (!cell) return;
+    cell.innerHTML = highlightText(row.dataset.settlementType || '', query);
+  }
+
+  function rebuildAmountCell(row, query) {
+    const cell = row.querySelector('.settlement-cell-amount');
+    if (!cell) return;
+    cell.innerHTML = highlightText(formatAmount(row.dataset.amount || '0'), query);
+  }
+
+  function rebuildSearchableCells(row, query) {
+    rebuildRegionCell(row, query);
+    rebuildNameCell(row, query);
+    rebuildConfirmationCell(row, query);
+    rebuildResultCell(row, query);
+    rebuildTypeCell(row, query);
+    rebuildBankCell(row, query);
+    rebuildAccountCell(row, query);
+    rebuildAmountCell(row, query);
+  }
+
+  function rowMatches(row, queryLower) {
+    const queryDigits = queryLower.replace(/[^\d]/g, '');
+    return getRowSearchValues(row).some(function(value) {
+      const normalized = String(value || '').toLowerCase();
+      if (normalized.includes(queryLower)) {
+        return true;
+      }
+      if (queryDigits && normalized.replace(/[^\d]/g, '').includes(queryDigits)) {
+        return true;
+      }
+      return false;
+    });
+  }
+
+  function updateNavButtons() {
+    if (!prevBtn || !nextBtn) return;
+    const hasMultiple = matchedRows.length > 1;
+    prevBtn.disabled = !hasMultiple;
+    nextBtn.disabled = !hasMultiple;
+  }
+
+  function updateStatus() {
+    if (!statusEl) return;
+    if (matchedRows.length === 0) {
+      statusEl.textContent = '';
+      return;
+    }
+    statusEl.textContent = currentIndex + 1 + ' / ' + matchedRows.length;
+  }
+
+  function focusMatch(index, scroll) {
+    if (matchedRows.length === 0) return;
+
+    matchedRows.forEach(function(row) {
+      row.classList.remove('branch-search-current');
+    });
+
+    currentIndex = ((index % matchedRows.length) + matchedRows.length) % matchedRows.length;
+    const target = matchedRows[currentIndex];
+    target.classList.add('branch-search-current');
+
+    if (scroll) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    updateStatus();
+    updateNavButtons();
+  }
+
+  function runSearch(scrollToFirst) {
+    if (!searchInput) return;
+
+    const query = (searchInput.value || '').trim();
+    restoreCells();
+    matchedRows = [];
+    currentIndex = 0;
+
+    if (!query) {
+      updateStatus();
+      updateNavButtons();
+      if (statusEl) statusEl.textContent = '';
+      return;
+    }
+
+    const queryLower = query.toLowerCase();
+    matchedRows = rows.filter(function(row) {
+      return rowMatches(row, queryLower);
+    });
+
+    if (matchedRows.length === 0) {
+      if (statusEl) statusEl.textContent = '결과 없음';
+      updateNavButtons();
+      return;
+    }
+
+    matchedRows.forEach(function(row) {
+      row.classList.add('branch-search-match');
+      rebuildSearchableCells(row, query);
+    });
+
+    searchInput.dataset.lastQuery = query;
+    focusMatch(0, scrollToFirst);
+  }
+
+  function goToNext() {
+    if (matchedRows.length === 0) {
+      runSearch(true);
+      return;
+    }
+    focusMatch(currentIndex + 1, true);
+  }
+
+  function goToPrev() {
+    if (matchedRows.length === 0) {
+      runSearch(true);
+      return;
+    }
+    focusMatch(currentIndex - 1, true);
+  }
+
+  if (searchBtn) {
+    searchBtn.addEventListener('click', function() {
+      const query = (searchInput.value || '').trim();
+      if (query && query === (searchInput.dataset.lastQuery || '') && matchedRows.length > 0) {
+        goToNext();
+      } else {
+        runSearch(true);
+      }
+    });
+  }
+
+  if (searchInput) {
+    searchInput.addEventListener('keydown', function(event) {
+      event.stopPropagation();
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        if (event.shiftKey) {
+          goToPrev();
+          return;
+        }
+        const query = (searchInput.value || '').trim();
+        if (query && query === (searchInput.dataset.lastQuery || '') && matchedRows.length > 0) {
+          goToNext();
+        } else {
+          runSearch(true);
+        }
+      }
+    });
+
+    searchInput.addEventListener('input', function() {
+      if (!(searchInput.value || '').trim()) {
+        searchInput.dataset.lastQuery = '';
+        runSearch(false);
+      }
+    });
+
+    searchInput.addEventListener('click', function(event) {
+      event.stopPropagation();
+    });
+  }
+
+  if (prevBtn) prevBtn.addEventListener('click', goToPrev);
+  if (nextBtn) nextBtn.addEventListener('click', goToNext);
+})();
+
+if (document.querySelectorAll('.settlement-row-clickable').length) {
+  applySettlementSort('amount_desc');
+}
+
+function updateSettlementResult(input) {
+  const row = input.closest('tr');
+  if (!row) return;
+  const cell = row.querySelector('.settlement-result-cell');
+  if (!cell) return;
+  const result = input.value ? '지급완료' : '';
+  cell.textContent = result;
+  row.dataset.result = result;
+  row.dataset.paymentDate = input.value || '';
+}
+
+async function saveMonthlyField(input, fieldName) {
+  const companyId = parseInt(input.getAttribute('data-company-id'), 10);
+  if (!companyId) return;
+
+  input.classList.remove('is-saved', 'is-error');
+  input.classList.add('is-saving');
+
+  const payload = {
+    year: SUMMARY_YEAR,
+    month: SUMMARY_MONTH,
+    company_id: companyId,
+  };
+  payload[fieldName] = input.value || '';
+
+  try {
+    const response = await fetch('/admin/api/monthly-settlement/payment-note', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || `저장 실패 (${response.status})`);
+    }
+    input.classList.add('is-saved');
+    setTimeout(function() { input.classList.remove('is-saved'); }, 1200);
+  } catch (error) {
+    console.error('저장 오류:', error);
+    input.classList.add('is-error');
+    alert('저장 실패: ' + error.message);
+  } finally {
+    input.classList.remove('is-saving');
+  }
+}
+
+document.querySelectorAll('.payment-date-input').forEach(function(input) {
+  updateSettlementResult(input);
+  input.addEventListener('click', function(event) {
+    event.stopPropagation();
+  });
+  input.addEventListener('keydown', function(event) {
+    event.stopPropagation();
+  });
+  input.addEventListener('input', function() {
+    updateSettlementResult(input);
+  });
+  input.addEventListener('change', function() {
+    updateSettlementResult(input);
+    saveMonthlyField(input, 'payment_note');
+    if (settlementCurrentSort.startsWith('payment_') || settlementCurrentSort.startsWith('result_')) {
+      applySettlementSort(settlementCurrentSort);
+    }
+  });
+});
+
+document.querySelectorAll('.remark-input').forEach(function(input) {
+  input.addEventListener('click', function(event) {
+    event.stopPropagation();
+  });
+  input.addEventListener('keydown', function(event) {
+    event.stopPropagation();
+  });
+  input.addEventListener('change', function() {
+    const row = input.closest('tr');
+    if (row) {
+      row.dataset.remark = input.value || '';
+    }
+    saveMonthlyField(input, 'remark');
+  });
+});
+
+function downloadMonthlyExcel(year, month) {
+  const btn = event.target.closest('button');
+  if (!btn) return;
+  
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>다운로드 중...';
+  
+  setTimeout(() => {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-file-excel me-1"></i>엑셀 다운로드';
+  }, 3000);
+  
+  const url = `/admin/api/monthly-settlement/export-excel?year=${year}&month=${month}`;
+  
+  fetch(url)
+    .then(response => {
+      if (!response.ok) throw new Error(`서버 오류: ${response.status}`);
+      return response.blob();
+    })
+    .then(blob => {
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `정산요약표_${year}년_${String(month).padStart(2, '0')}월.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+      
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-file-excel me-1"></i>엑셀 다운로드';
+    })
+    .catch(error => {
+      console.error('다운로드 오류:', error);
+      alert(`다운로드 실패: ${error.message}`);
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-file-excel me-1"></i>엑셀 다운로드';
+    });
+}
+</script>
+{% endblock %}

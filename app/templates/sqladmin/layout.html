@@ -1,0 +1,752 @@
+{% extends "sqladmin/base.html" %}
+{% from 'sqladmin/_macros.html' import display_menu %}
+{% block body %}
+<script>
+// 페이지 로딩 직후 즉시 실행되는 인라인 스크립트
+(function() {
+    // 로딩 오버레이 HTML 생성
+    const overlay = document.createElement('div');
+    overlay.id = 'adminLoadingOverlay';
+    overlay.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.6); display: none; justify-content: center; align-items: center; z-index: 99999;';
+    overlay.innerHTML = '<div style="display: flex; align-items: center; gap: 15px;"><div style="border: 4px solid rgba(255,255,255,0.3); border-top: 4px solid #fff; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite;"></div><span style="color: white; font-size: 18px; font-weight: 500;">로딩 중...</span></div><style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>';
+    document.body.appendChild(overlay);
+    
+    // 전역 로딩 객체
+    window.AdminLoading = {
+        show: function() { 
+            overlay.style.display = 'flex';
+            clearTimeout(this._timeout);
+            this._timeout = setTimeout(() => { overlay.style.display = 'none'; }, 3000);
+        },
+        hide: function() { 
+            overlay.style.display = 'none';
+            clearTimeout(this._timeout);
+        }
+    };
+})();
+
+// 페이지 네비게이션 이벤트 리스너
+document.addEventListener('click', function(e) {
+    const link = e.target.closest('a');
+    if (link) {
+        const href = link.getAttribute('href') || '';
+    // 다운로드/익스포트 링크는 beforeunload에서 오버레이를 띄우지 않도록 플래그 설정
+    const isDownloadLink = href.includes('download') || href.includes('export');
+    // 전역 플래그로 브라우저의 beforeunload 처리와 연동
+    window.__admin_pending_download = !!isDownloadLink;
+    // 플래그는 안전 장치로 5초 뒤 자동 해제
+    if (window.__admin_pending_download) {
+      setTimeout(() => { window.__admin_pending_download = false; }, 5000);
+    }
+
+    if (href && !href.startsWith('http') && !href.startsWith('#') && 
+      !href.startsWith('javascript:') && href !== '/admin/logout' &&
+      !isDownloadLink) {
+      if (!e.ctrlKey && !e.metaKey && !e.shiftKey && link.target !== '_blank') {
+        window.AdminLoading.show();
+      }
+    }
+    }
+}, true);
+
+// 폼 제출 리스너
+document.addEventListener('submit', function(e) {
+    const form = e.target;
+    if (form && !form.hasAttribute('data-ajax')) {
+        const action = form.getAttribute('action') || '';
+        if (!action.includes('download') && !action.includes('export')) {
+            window.AdminLoading.show();
+        } else if (action.includes('export')) {
+            // export 요청 후 1초 뒤 자동으로 로딩 숨김
+            setTimeout(() => {
+                window.AdminLoading.hide();
+            }, 1000);
+        }
+    }
+}, true);
+
+// AJAX 요청 감시 (fetch API)
+const originalFetch = window.fetch;
+window.fetch = function(...args) {
+    const [resource] = args;
+    const url = typeof resource === 'string' ? resource : resource.url || '';
+    
+    return originalFetch.apply(this, args).then(response => {
+        // export 요청이면 응답 후 로딩 숨김
+        if (url.includes('export')) {
+            setTimeout(() => {
+                window.AdminLoading.hide();
+            }, 500);
+        }
+        return response;
+    }).catch(error => {
+        if (url.includes('export')) {
+            window.AdminLoading.hide();
+        }
+        throw error;
+    });
+};
+
+// XMLHttpRequest 감시
+const originalXHROpen = XMLHttpRequest.prototype.open;
+XMLHttpRequest.prototype.open = function(method, url, async, user, pass) {
+    this._url = url;
+    return originalXHROpen.apply(this, arguments);
+};
+
+const originalXHRSend = XMLHttpRequest.prototype.send;
+XMLHttpRequest.prototype.send = function(data) {
+    const url = this._url || '';
+    const self = this;
+    
+    this.addEventListener('loadend', function() {
+        if (url.includes('export')) {
+            window.AdminLoading.hide();
+        }
+    });
+    
+    return originalXHRSend.apply(this, arguments);
+};
+
+// 페이지 언로드 시 로딩 표시
+window.addEventListener('beforeunload', function() {
+  // 다운로드/익스포트로 인한 브라우저의 beforeunload는 파일 다운로드 전환이므로
+  // 사용자에게 무한로딩을 보여주지 않도록 처리
+  if (window.__admin_pending_download) {
+    // 다운로드 플래그가 설정되어 있으면 오버레이를 띄우지 않음
+    return;
+  }
+  const overlay = document.getElementById('adminLoadingOverlay');
+  if (overlay) {
+    overlay.style.display = 'flex';
+  }
+});
+
+// 뒤로가기(bfcache 복원) 시 beforeunload로 켜진 오버레이 제거
+function hideAdminLoadingOverlay() {
+  const overlay = document.getElementById('adminLoadingOverlay');
+  if (overlay) {
+    overlay.style.display = 'none';
+  }
+  if (window.AdminLoading && typeof window.AdminLoading.hide === 'function') {
+    window.AdminLoading.hide();
+  }
+}
+
+window.addEventListener('pageshow', hideAdminLoadingOverlay);
+document.addEventListener('DOMContentLoaded', hideAdminLoadingOverlay);
+</script>
+<div class="wrapper">
+  <aside class="navbar navbar-expand-lg navbar-vertical navbar-expand-md navbar-dark">
+    <div class="container-fluid">
+      <h1 class="navbar-brand navbar-brand-autodark">
+        <a href="{{ url_for('admin:index') }}">
+          {% if admin.logo_url %}
+          <img src="{{ admin.logo_url }}" width="64" height="64" alt="Admin" class="navbar-brand-image" />
+          {% else %}
+          <h3>{{ admin.title }}</h3>
+          {% endif %}
+        </a>
+      </h1>
+      <nav class="navbar navbar-expand-sm" id="navbar-menu">
+        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarSupportedContent"
+          aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarSupportedContent">
+          {{ display_menu(admin._menu, request) }}
+
+            <style>
+              .admin-menu-divider {
+                list-style: none;
+                margin: 0.45rem 0.85rem;
+                padding: 0;
+                pointer-events: none;
+              }
+              .admin-menu-divider hr {
+                border: 0;
+                border-top: 1px solid rgba(255, 255, 255, 0.9);
+                margin: 0;
+                opacity: 1;
+              }
+            </style>
+            <script>
+            (function() {
+              const DIVIDER_AFTER = ['지사장 정산서 확인', '공지사항', '수수료율'];
+              const roleId = {{ request.session.get('role_id') or 0 }};
+              if (roleId !== 1) {
+                return;
+              }
+              function insertMenuDividers() {
+                const nav = document.querySelector('#navbar-menu .navbar-nav');
+                if (!nav || nav.querySelector('.admin-menu-divider')) {
+                  return;
+                }
+                DIVIDER_AFTER.forEach(function(title) {
+                  nav.querySelectorAll('.nav-item').forEach(function(item) {
+                    const titleEl = item.querySelector('.nav-link-title');
+                    if (!titleEl || titleEl.textContent.trim() !== title) {
+                      return;
+                    }
+                    const divider = document.createElement('li');
+                    divider.className = 'nav-item admin-menu-divider';
+                    divider.setAttribute('aria-hidden', 'true');
+                    divider.innerHTML = '<hr />';
+                    item.after(divider);
+                  });
+                });
+              }
+              if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', insertMenuDividers);
+              } else {
+                insertMenuDividers();
+              }
+            })();
+            </script>
+
+            <script>
+            // Light client-side validation for CommissionRateWindow form
+            (function(){
+              const path = window.location.pathname;
+              if (path.includes('/admin/commissionratewindow/') && (path.endsWith('/create') || path.includes('/edit'))){
+                const form = document.querySelector('form');
+                if(form){
+                  form.addEventListener('submit', function(e){
+                    const minEl = document.querySelector('input[name="min_amount"]');
+                    const maxEl = document.querySelector('input[name="max_amount"]');
+                    if(minEl){
+                      const minV = parseInt(minEl.value || '0', 10);
+                      if(minV < 0){
+                        e.preventDefault();
+                        alert('최소금액은 0 이상이어야 합니다.');
+                        return false;
+                      }
+                    }
+                    if(minEl && maxEl && maxEl.value){
+                      const minV = parseInt(minEl.value || '0', 10);
+                      const maxV = parseInt(maxEl.value, 10);
+                      if(maxV < minV){
+                        e.preventDefault();
+                        alert('최대금액은 최소금액보다 크거나 같아야 합니다.');
+                        return false;
+                      }
+                    }
+                  });
+                }
+              }
+            })();
+            </script>
+        </div>
+      </nav>
+      {% if admin.authentication_backend %}
+      <div class="user-info-container" style="margin-left: 0.5rem; padding-right: 0.5rem; padding-top: 0.5rem; padding-bottom: 0.5rem;">
+        <!-- 사용자 정보 표시 (한 줄) -->
+        {% if request.session.get('name') %}
+        <div class="user-info-display">
+          <div class="user-info-line">
+            {{ request.session.get('name') }} • {{ request.session.get('role_name', '사용자') }}
+          </div>
+          {% if request.session.get('company_name') %}
+          <div class="user-info-company">
+            {{ request.session.get('company_name') }}
+          </div>
+          {% endif %}
+        </div>
+        {% endif %}
+        <!-- 로그아웃 버튼 -->
+        <a href="{{ request.url_for('admin:logout') }}" class="btn btn-secondary btn-icon" style="width: 100%; justify-content: center; margin-top: 0.75rem;">
+          <i class="fa fa-sign-out"></i>
+          <span>로그아웃</span>
+        </a>
+      </div>
+      {% endif %}
+    </div>
+  </aside>
+  <div class="page-wrapper">
+    <div class="container-fluid">
+      <div class="page-header d-print-none">
+        {% block content_header %}
+        <div class="row align-items-center">
+          <div class="col">
+            <h2 class="page-title">{{ title }}</h2>
+            <div class="page-pretitle">{{ subtitle }}</div>
+          </div>
+        </div>
+        {% endblock %}
+      </div>
+    </div>
+    <div class="page-body flex-grow-1">
+      <div class="container-fluid">
+        <div class="row row-deck row-cards">
+          {% block content %}{% endblock %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% set session_role_id = request.session.get('role_id') %}
+{% set password_change_required = request.session.get('password_change_required') %}
+{% set show_password_modal = session_role_id == 2 and password_change_required %}
+
+<style>
+  .password-change-modal {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.65);
+    z-index: 2000;
+  }
+
+  .password-change-modal.show {
+    display: flex;
+  }
+
+  .password-change-modal__content {
+    width: min(420px, calc(100% - 48px));
+    background: #fff;
+    border-radius: 16px;
+    padding: 2rem;
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.25);
+    position: relative;
+  }
+
+  .password-change-modal__content h3 {
+    margin-top: 0;
+    margin-bottom: 0.25rem;
+    font-size: 1.35rem;
+    font-weight: 600;
+  }
+
+  .password-change-modal__content p {
+    margin: 0 0 1.5rem;
+    color: #555;
+    font-size: 0.95rem;
+  }
+
+  .password-change-modal__field {
+    margin-bottom: 1rem;
+  }
+
+  .password-change-modal__field label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+  }
+
+  .password-change-modal__field input {
+    width: 100%;
+    border: 1px solid #ced4da;
+    border-radius: 8px;
+    padding: 0.65rem 0.9rem;
+    font-size: 0.95rem;
+  }
+  .password-change-guide {
+    margin: 0.35rem 0 0;
+    font-size: 0.85rem;
+    color: #6c757d;
+    line-height: 1.35;
+  }
+  .session-warning-modal {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.65);
+    z-index: 2100;
+  }
+
+  .session-warning-modal.show {
+    display: flex;
+  }
+
+  .session-warning-modal__content {
+    width: min(420px, calc(100% - 48px));
+    background: #fff;
+    border-radius: 16px;
+    padding: 1.75rem;
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.25);
+    text-align: center;
+  }
+
+  .session-warning-modal__content h3 {
+    margin-top: 0;
+    margin-bottom: 0.3rem;
+    font-size: 1.3rem;
+    font-weight: 600;
+  }
+
+  .session-warning-modal__content p {
+    margin: 0 0 1.2rem;
+    color: #555;
+    font-size: 0.95rem;
+  }
+
+  .session-warning-modal__actions {
+    display: flex;
+    justify-content: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  body.session-warning-modal-open {
+    overflow: hidden;
+  }
+
+  .password-change-modal__actions {
+    margin-top: 1.25rem;
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+  }
+
+  .password-change-alert {
+    margin-bottom: 1rem;
+    padding: 0.75rem 0.9rem;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    display: none;
+  }
+
+  .password-change-alert.success {
+    background: #e6f8f1;
+    color: #0f8a68;
+    border: 1px solid #6dd39a;
+  }
+
+  .password-change-alert.error {
+    background: #ffe3e3;
+    color: #c92a2a;
+    border: 1px solid #f5a6a6;
+  }
+
+  body.password-change-modal-open {
+    overflow: hidden;
+  }
+</style>
+
+<div id="passwordChangeModal" class="password-change-modal" role="dialog" aria-modal="true" aria-label="비밀번호 변경 안내">
+  <div class="password-change-modal__content">
+    <h3>비밀번호 변경 (필수)</h3>
+    <p>지사장 계정은 첫 로그인 시 반드시 비밀번호를 변경해야 합니다. 아래 정보를 입력 후 저장하세요.</p>
+    <div id="passwordChangeAlert" class="password-change-alert" role="status" aria-live="polite"></div>
+    <form id="passwordChangeForm">
+      <div class="password-change-modal__field">
+        <label for="passwordChangeCurrent">현재 비밀번호</label>
+        <input id="passwordChangeCurrent" name="current_password" type="password" placeholder="현재 비밀번호" required autocomplete="current-password" />
+      </div>
+      <div class="password-change-modal__field">
+        <label for="passwordChangeNew">새 비밀번호</label>
+        <input id="passwordChangeNew" name="new_password" type="password" placeholder="새 비밀번호 (8자 이상)" required autocomplete="new-password" minlength="8" />
+        <p class="password-change-guide">8자 이상, 영문 대/소문자, 숫자, 특수문자를 최소 3종류 이상 섞어서 설정하세요.</p>
+      </div>
+      <div class="password-change-modal__field">
+        <label for="passwordChangeConfirm">새 비밀번호 확인</label>
+        <input id="passwordChangeConfirm" name="confirm_password" type="password" placeholder="새 비밀번호 확인" required autocomplete="new-password" minlength="8" />
+      </div>
+      <div class="password-change-modal__actions">
+        <button type="submit" class="btn btn-primary" id="passwordChangeSave">저장</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function() {
+  const shouldShow = {{ 'true' if show_password_modal else 'false' }};
+  const modal = document.getElementById('passwordChangeModal');
+  const body = document.body;
+  const form = document.getElementById('passwordChangeForm');
+  const alertEl = document.getElementById('passwordChangeAlert');
+  const submitButton = document.getElementById('passwordChangeSave');
+
+  const alertStates = {
+    success: 'success',
+    error: 'error'
+  };
+
+  function setAlert(type, message) {
+    alertEl.textContent = message;
+    alertEl.className = `password-change-alert ${alertStates[type] || ''}`.trim();
+    alertEl.style.display = 'block';
+  }
+
+  function hideAlert() {
+    alertEl.style.display = 'none';
+  }
+
+  function showModal() {
+    if (!modal) return;
+    modal.classList.add('show');
+    body.classList.add('password-change-modal-open');
+    hideAlert();
+  }
+
+  function hideModal() {
+    if (!modal) return;
+    modal.classList.remove('show');
+    body.classList.remove('password-change-modal-open');
+  }
+
+  document.addEventListener('keydown', function(event) {
+    if (modal && modal.classList.contains('show') && event.key === 'Escape') {
+      event.preventDefault();
+    }
+  });
+
+  if (shouldShow && modal) {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', showModal);
+    } else {
+      showModal();
+    }
+  }
+
+  if (!form) {
+    return;
+  }
+
+  form.addEventListener('submit', function(event) {
+    event.preventDefault();
+    hideAlert();
+
+    const currentPassword = document.getElementById('passwordChangeCurrent').value.trim();
+    const newPassword = document.getElementById('passwordChangeNew').value.trim();
+    const confirmPassword = document.getElementById('passwordChangeConfirm').value.trim();
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setAlert('error', '모든 필드를 입력해주세요.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setAlert('error', '새 비밀번호와 확인값이 일치하지 않습니다.');
+      return;
+    }
+
+    submitButton.disabled = true;
+    submitButton.textContent = '저장 중...';
+
+    fetch('/api/admin/password-change', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword,
+        confirm_password: confirmPassword
+      }),
+      credentials: 'same-origin'
+    })
+      .then(response => response.json().catch(() => ({ status: 'error', message: '서버 응답을 처리하지 못했습니다.' })))
+      .then(data => {
+        if (data.status === 'success') {
+          setAlert('success', data.message || '비밀번호가 저장되었습니다.');
+          setTimeout(() => {
+            hideModal();
+          }, 1200);
+        } else {
+          setAlert('error', data.message || '비밀번호 변경에 실패했습니다.');
+        }
+      })
+      .catch(() => {
+        setAlert('error', '네트워크 오류가 발생했습니다. 다시 시도해주세요.');
+      })
+      .finally(() => {
+        submitButton.disabled = false;
+        submitButton.textContent = '저장';
+      });
+  });
+})();
+</script>
+
+<div id="sessionWarningModal" class="session-warning-modal" role="dialog" aria-modal="true" aria-label="세션 만료 알림">
+  <div class="session-warning-modal__content">
+    <h3>세션 만료 예정</h3>
+    <p>세션이 곧 만료됩니다.</p>
+    <div class="password-change-modal__actions" style="justify-content: center; margin-top: 1rem;">
+      <button type="button" id="sessionWarningExtend" class="btn btn-primary">세션 연장</button>
+      <button type="button" id="sessionWarningClose" class="btn btn-secondary">닫기</button>
+    </div>
+  </div>
+</div>
+  <script>
+  (function() {
+    const sessionWarningEnabled = {{ 'true' if request.session.get('is_admin') else 'false' }};
+    if (!sessionWarningEnabled) {
+      return;
+    }
+
+    const sessionTimeoutMs = 10 * 60 * 1000; // 10 minutes
+    const warningDelayMs = 9 * 60 * 1000; // show warning at 9 minutes
+    const warningModal = document.getElementById('sessionWarningModal');
+    const extendButton = document.getElementById('sessionWarningExtend');
+    const closeButton = document.getElementById('sessionWarningClose');
+    const messageEl = warningModal ? warningModal.querySelector('.session-warning-modal__content p') : null;
+    let warningTimer;
+    let expireTimer;
+
+    const clearWarningTimer = () => {
+      if (warningTimer) {
+        clearTimeout(warningTimer);
+        warningTimer = null;
+      }
+    };
+
+    const clearExpireTimer = () => {
+      if (expireTimer) {
+        clearTimeout(expireTimer);
+        expireTimer = null;
+      }
+    };
+
+    const hideModal = ({ clearExpire = true } = {}) => {
+      if (!warningModal) return;
+      warningModal.classList.remove('show');
+      document.body.classList.remove('session-warning-modal-open');
+      if (clearExpire) {
+        clearExpireTimer();
+      }
+    };
+
+    const showModal = () => {
+      if (!warningModal) return;
+      warningModal.classList.add('show');
+      document.body.classList.add('session-warning-modal-open');
+      if (messageEl) {
+        messageEl.textContent = '세션을 연장하지 않으면 세션이 만료되어 로그아웃됩니다.';
+      }
+      // schedule expire in the remaining time (usually 1 minute)
+      clearExpireTimer();
+      expireTimer = setTimeout(() => {
+        // auto-logout when expired
+        window.location.href = "{{ url_for('admin:logout') }}";
+      }, sessionTimeoutMs - warningDelayMs);
+    };
+
+    const scheduleWarning = () => {
+      clearWarningTimer();
+      warningTimer = setTimeout(showModal, warningDelayMs);
+    };
+
+    const extendSession = () => {
+      if (!extendButton) return;
+      extendButton.disabled = true;
+      extendButton.textContent = '연장 중...';
+
+      fetch('/api/admin/session-keepalive', {
+        method: 'POST',
+        credentials: 'same-origin'
+      })
+        .then(response => response.json().catch(() => null))
+        .then(data => {
+            if (data && data.status === 'success') {
+              if (messageEl) {
+                messageEl.textContent = '세션이 연장되었습니다.';
+              }
+              hideModal();
+              clearWarningTimer();
+              clearExpireTimer();
+              scheduleWarning();
+            } else {
+            if (messageEl) {
+              messageEl.textContent = data?.message || '세션 연장에 실패했습니다.';
+            }
+          }
+        })
+        .catch(() => {
+          if (messageEl) {
+            messageEl.textContent = '연결 오류가 발생했습니다.';
+          }
+        })
+        .finally(() => {
+          if (extendButton) {
+            extendButton.disabled = false;
+            extendButton.textContent = '세션 연장';
+          }
+        });
+    };
+
+    const closeModal = () => {
+      hideModal({ clearExpire: false });
+    };
+
+    if (extendButton) {
+      extendButton.addEventListener('click', function() { extendSession(); });
+    }
+
+    if (closeButton) {
+      closeButton.addEventListener('click', function() { closeModal(); });
+    }
+
+    document.addEventListener('visibilitychange', function() {
+      if (document.visibilityState === 'visible') {
+        scheduleWarning();
+      }
+    });
+
+    scheduleWarning();
+  })();
+  </script>
+  <script>
+  (function() {
+    const normalizePath = (path) => (path || '').replace(/\/+$/, '') || '/';
+    const currentLocation = normalizePath(window.location.pathname);
+    document.querySelectorAll('.navbar-nav .nav-link[href]').forEach(link => {
+      const href = link.getAttribute('href');
+      if (!href || href.startsWith('#') || href.startsWith('http') || href.startsWith('javascript:')) {
+        return;
+      }
+      let normalizedHref;
+      try {
+        normalizedHref = normalizePath(new URL(href, window.location.origin).pathname);
+      } catch (e) {
+        normalizedHref = normalizePath(href);
+      }
+      if (normalizedHref === currentLocation) {
+        link.classList.add('active');
+        const dropdownMenu = link.closest('.dropdown-menu');
+        if (dropdownMenu) {
+          const toggle = dropdownMenu.previousElementSibling;
+          if (toggle && toggle.matches('.nav-link.dropdown-toggle')) {
+            toggle.classList.add('active');
+          }
+        }
+      }
+    });
+  })();
+  </script>
+{% endblock %}
+
+{% block tail %}
+<script>
+/* flatpickr 한국어 locale (인라인) */
+(function(fp) {
+  var Korean = {
+    weekdays: {
+      shorthand: ["일", "월", "화", "수", "목", "금", "토"],
+      longhand: ["일요일", "월요일", "화요일", "수요일", "목요일", "금요일", "토요일"],
+    },
+    months: {
+      shorthand: ["1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"],
+      longhand: ["1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"],
+    },
+    ordinal: function() { return ""; },
+    rangeSeparator: " ~ ",
+  };
+  fp.l10ns.ko = Korean;
+  fp.localize(Korean);
+})(window.flatpickr);
+
+/* 이미 초기화된 flatpickr 인스턴스에 한국어 locale 재적용 */
+document.querySelectorAll('[data-role="datepicker"], [data-role="datetimepicker"]').forEach(function(el) {
+  if (el._flatpickr) {
+    el._flatpickr.set("locale", "ko");
+  }
+});
+</script>
+{% endblock %}

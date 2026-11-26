@@ -1,0 +1,91 @@
+{# 회원 관리 신규/수정 폼 필드 순서 (첨부 시안) #}
+{% from 'sqladmin/_macros.html' import render_field %}
+
+{% if form.hidden_tag is defined %}
+{{ form.hidden_tag() }}
+{% else %}
+{% for f in form if f.widget.input_type == 'hidden' %}
+{{ f }}
+{% endfor %}
+{% endif %}
+
+{% set field_order = [
+  'login_id', 'name', 'email', 'code', 'company', 'role',
+  'main_contact', 'bank_name', 'bank_account', 'address',
+  'contracted_at', 'is_active',
+  'is_register', 'contract_end_date', 'contract_end_memo'
+] %}
+
+{% set doc_fields = [
+  ('doc_contract', '1 계약서 전문'),
+  ('doc_bankbook', '2 통장사본'),
+  ('doc_personal_info', '3 개인정보사본'),
+  ('doc_business_registration', '4 사업자등록증 사본'),
+] %}
+
+{% for fname in field_order %}
+  {% for f in form if f.name == fname and f.widget.input_type != 'hidden' %}
+    {{ render_field(f) }}
+    {% if fname == 'is_active' %}
+    <div class="mb-3 form-group row user-settlement-type-row">
+      <label class="form-label col-sm-2 col-form-label">정산 유형</label>
+      <div class="col-sm-10">
+        <div class="d-flex flex-wrap gap-4 pt-1">
+          {% for sf in form if sf.name in ['settlement_personal', 'settlement_business'] %}
+          <div class="form-check mb-0">
+            {{ sf(class='form-check-input') }}
+            <label class="form-check-label" for="{{ sf.id }}">
+              {% if sf.name == 'settlement_personal' %}개인 정산{% else %}사업자 정산{% endif %}
+            </label>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% for bf in form if bf.name == 'business_name' %}
+    <div class="mb-3 form-group row user-business-name-row">
+      <label class="form-label col-sm-2 col-form-label" for="{{ bf.id }}">사업자명</label>
+      <div class="col-sm-10">
+        {{ bf(class='form-control', placeholder='사업자명을 입력하세요') }}
+        <div class="form-text">정산유형이 <strong>사업자</strong>인 회원은 월정산 요약표의 이름란에 사업자명이 표시됩니다.</div>
+      </div>
+    </div>
+    {% endfor %}
+    {% elif fname == 'contract_end_date' %}
+    <div class="mb-3 form-group row user-document-submission-row">
+      <label class="form-label col-sm-2 col-form-label">서류제출</label>
+      <div class="col-sm-10">
+        <div class="row g-3 pt-1">
+          {% for doc_name, doc_label in doc_fields %}
+          {% for df in form if df.name == doc_name %}
+          <div class="col-sm-6">
+            <div class="d-flex align-items-center justify-content-between user-doc-check-item">
+              <label class="form-check-label mb-0" for="{{ df.id }}">{{ doc_label }}</label>
+              {{ df(class='form-check-input flex-shrink-0 ms-2') }}
+            </div>
+          </div>
+          {% endfor %}
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  {% endfor %}
+{% endfor %}
+
+<style>
+.user-settlement-type-row .form-check-label,
+.user-document-submission-row .form-check-label {
+  font-weight: 400;
+  cursor: pointer;
+}
+.user-doc-check-item {
+  min-height: 2rem;
+  padding-right: 0.25rem;
+}
+.user-doc-check-item .form-check-input {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-top: 0;
+}
+</style>

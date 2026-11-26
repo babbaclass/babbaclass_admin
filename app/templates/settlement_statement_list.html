@@ -1,0 +1,262 @@
+{% extends "sqladmin/layout.html" %}
+
+{% block content %}
+<div class="col-12">
+  <div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <h3 class="card-title mb-0">정산서</h3>
+      <button type="button" id="btnRevealAmounts" class="btn btn-success btn-sm">
+        정산서를 확인했습니다
+      </button>
+    </div>
+    <div class="card-body">
+      <div class="settlement-confirmation-notice alert alert-info mb-3 py-2" role="status">
+        <div><strong>정산서 확인 기간 :</strong> 매달 10일~15일</div>
+        <div class="mb-0 mt-1 settlement-confirmation-notice__detail">
+          → 기간 내 확인 시 정산금 정상 지급처리 / 이후 확인 시 정산금 ‘이월’ 지급됨
+        </div>
+      </div>
+      <div id="year-tabs" class="d-flex flex-wrap gap-2 mb-4"></div>
+
+      <div id="loading-message" class="text-center text-muted py-4">정산 데이터를 불러오는 중...</div>
+      <div id="error-message" class="alert alert-danger" style="display: none;"></div>
+
+      <div id="month-grid-wrapper" style="display: none;">
+        <div id="month-grid" class="month-grid"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+.month-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+}
+
+.month-cell {
+  border: 1px solid #dee2e6;
+  text-align: center;
+  padding: 10px 6px;
+  text-decoration: none;
+  color: inherit;
+  display: block;
+  min-height: 72px;
+}
+
+.month-cell.month-active {
+  background-color: #f8f9fa;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.month-cell.month-active:hover {
+  background-color: #e9ecef;
+  text-decoration: none;
+  color: inherit;
+}
+
+.month-cell.month-disabled {
+  background-color: #fff;
+  cursor: not-allowed;
+  color: #adb5bd;
+}
+
+.month-label {
+  font-weight: 700;
+  font-size: 1rem;
+  margin-bottom: 4px;
+}
+
+.month-amount {
+  font-size: 0.85rem;
+  min-height: 1.2em;
+}
+
+.month-amount.text-muted {
+  color: #6c757d !important;
+}
+
+.card {
+  border: none;
+  border-radius: 0.5rem;
+}
+
+.card-header {
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.settlement-confirmation-notice {
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.settlement-confirmation-notice__detail {
+  font-size: 0.92rem;
+}
+
+.year-tab-btn.active {
+  font-weight: 700;
+}
+</style>
+
+<script>
+const companyId = {% if company_id %}{{ company_id }}{% else %}null{% endif %};
+const STORAGE_KEY = 'settlementStatementAmountsRevealed';
+
+let amountsRevealed = sessionStorage.getItem(STORAGE_KEY) === 'true';
+let currentYear = null;
+let availableYears = [];
+
+function formatAmount(value) {
+  return Number(value || 0).toLocaleString('ko-KR');
+}
+
+function buildDetailUrl(year, month) {
+  let url = `/admin/settlement-statement-detail?year=${year}&month=${month}`;
+  if (companyId) {
+    url += `&company_id=${companyId}`;
+  }
+  return url;
+}
+
+function renderAmountCell(monthData) {
+  if (!amountsRevealed) {
+    return '<div class="month-amount text-muted">...</div>';
+  }
+  if (!monthData.is_issued) {
+    return '<div class="month-amount">0원</div>';
+  }
+  return `<div class="month-amount">${formatAmount(monthData.gross_amount)}원</div>`;
+}
+
+function renderMonthGrid(year, months) {
+  const grid = document.getElementById('month-grid');
+  grid.innerHTML = '';
+
+  months.forEach(function(monthData) {
+    const month = monthData.month;
+    const amountHtml = renderAmountCell(monthData);
+
+    if (monthData.is_issued) {
+      const link = document.createElement('a');
+      link.href = buildDetailUrl(year, month);
+      link.className = 'month-cell month-active';
+      link.innerHTML = `<div class="month-label">${month}월</div>${amountHtml}`;
+      grid.appendChild(link);
+    } else {
+      const cell = document.createElement('div');
+      cell.className = 'month-cell month-disabled';
+      cell.innerHTML = `<div class="month-label">${month}월</div>${amountHtml}`;
+      grid.appendChild(cell);
+    }
+  });
+
+  document.getElementById('month-grid-wrapper').style.display = 'block';
+}
+
+function renderYearTabs(years, selectedYear) {
+  const container = document.getElementById('year-tabs');
+  container.innerHTML = '';
+
+  years.forEach(function(year) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-sm ' + (year === selectedYear ? 'btn-primary active' : 'btn-outline-secondary');
+    btn.textContent = `${year}년`;
+    btn.addEventListener('click', function() {
+      loadMonthGrid(year);
+    });
+    container.appendChild(btn);
+  });
+}
+
+async function loadMonthGrid(year) {
+  document.getElementById('loading-message').style.display = 'block';
+  document.getElementById('error-message').style.display = 'none';
+  document.getElementById('month-grid-wrapper').style.display = 'none';
+
+  try {
+    let url = `/api/admin/settlement/statement-month-grid?year=${year}`;
+    if (companyId) {
+      url += `&company_id=${companyId}`;
+    }
+
+    const response = await fetch(url);
+    const data = await response.json();
+
+    document.getElementById('loading-message').style.display = 'none';
+
+    if (data.status !== 'success') {
+      showError(data.message || '데이터 조회 실패');
+      return;
+    }
+
+    currentYear = data.year;
+    availableYears = data.available_years || [data.year];
+    renderYearTabs(availableYears, currentYear);
+    renderMonthGrid(data.year, data.months || []);
+  } catch (error) {
+    document.getElementById('loading-message').style.display = 'none';
+    showError('데이터 조회 중 오류: ' + error.message);
+  }
+}
+
+function showError(message) {
+  const el = document.getElementById('error-message');
+  el.textContent = message;
+  el.style.display = 'block';
+}
+
+function updateRevealButton() {
+  const btn = document.getElementById('btnRevealAmounts');
+  if (!btn) return;
+  if (amountsRevealed) {
+    btn.disabled = true;
+    btn.textContent = '금액 표시 중';
+    btn.classList.remove('btn-success');
+    btn.classList.add('btn-secondary');
+  }
+}
+
+function revealAmounts() {
+  amountsRevealed = true;
+  sessionStorage.setItem(STORAGE_KEY, 'true');
+  updateRevealButton();
+  loadMonthGrid(currentYear || new Date().getFullYear());
+}
+
+document.getElementById('btnRevealAmounts').addEventListener('click', revealAmounts);
+
+document.addEventListener('DOMContentLoaded', function() {
+  const overlay = document.getElementById('adminLoadingOverlay');
+  if (overlay) overlay.classList.remove('show');
+  if (window.AdminLoading && window.AdminLoading.hide) window.AdminLoading.hide();
+
+  updateRevealButton();
+
+  const currentPath = window.location.pathname;
+  document.querySelectorAll('.navbar-nav .nav-link, .sidebar .nav-link').forEach(function(link) {
+    const href = link.getAttribute('href');
+    const isSettlementStatementPage = currentPath.endsWith('/settlement-statement') ||
+      currentPath.includes('/settlement-statement?');
+    const isSettlementStatementLink = href && (href.endsWith('/settlement-statement') ||
+      href.includes('/settlement-statement?'));
+    if (isSettlementStatementPage && isSettlementStatementLink) {
+      link.classList.add('active');
+      const dropdown = link.closest('.dropdown');
+      if (dropdown) {
+        dropdown.classList.add('show');
+        const dropdownToggle = dropdown.querySelector('.dropdown-toggle');
+        if (dropdownToggle) dropdownToggle.classList.add('active');
+      }
+    }
+  });
+
+  const initialYear = new Date().getFullYear();
+  loadMonthGrid(initialYear);
+});
+</script>
+{% endblock %}

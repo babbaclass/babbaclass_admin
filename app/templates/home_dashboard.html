@@ -1,0 +1,533 @@
+{% extends "sqladmin/layout.html" %}
+
+{% block content %}
+<!-- 정산 사전 검증 경고 배너 -->
+{% if pre_validation and pre_validation.status == 'success' and pre_validation.issue_count > 0 %}
+<div class="alert alert-warning d-flex align-items-start mb-4" role="alert">
+    <i class="fa-solid fa-triangle-exclamation me-3 mt-1" style="font-size:1.3rem;"></i>
+    <div style="flex:1;">
+        <strong>⚠️ 이번 달 정산 불가 주문 {{ pre_validation.issue_count }}건</strong>
+        <span class="text-muted ms-2">({{ pre_validation.year }}년 {{ pre_validation.month }}월)</span>
+        <div class="mt-2">
+            {% for reason, count in pre_validation.summary_by_reason.items() %}
+            <span class="badge bg-danger me-2 mb-1">
+                {% if reason == 'USER_NOT_FOUND' %}사용자 매핑 불가
+                {% elif reason == 'INVALID_COMPANY_ID' %}회사ID 오류
+                {% elif reason == 'NO_ORDER_ITEMS' %}주문 상품 없음
+                {% elif reason == 'NO_PRODUCT' %}상품 정보 없음
+                {% elif reason == 'NO_COMMISSION_TYPE' %}수수료 타입 미설정
+                {% else %}{{ reason }}
+                {% endif %}
+                {{ count }}건
+            </span>
+            {% endfor %}
+        </div>
+        <div class="mt-2 d-flex align-items-center">
+            <a href="/admin/settlement-skip-records?year={{ pre_validation.year }}&month={{ pre_validation.month }}" class="btn btn-sm btn-outline-warning me-3">정산 안된 내역 보기</a>
+            {% if pre_validation.cached_at %}
+            <small class="text-muted"><i class="fa-regular fa-clock me-1"></i>마지막 검증: {{ pre_validation.cached_at }}</small>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- 시스템 정보 알림 -->
+<div class="alert alert-info d-flex align-items-center mb-4" role="alert">
+    <i class="fa-solid fa-info-circle me-2"></i>
+    <div>
+        <strong>정보:</strong> 이 대시보드는 실시간으로 업데이트되지 않습니다. 페이지를 새로고침하여 최신 데이터를 확인하세요.
+    </div>
+</div>
+
+<!-- 지사 목록 카드 -->
+<div class="card home-branch-card">
+    <div class="home-branch-sticky-header">
+        <div class="card-header home-branch-card__toolbar d-flex justify-content-between align-items-center">
+            <h5 class="card-title mb-0"><i class="fa-solid fa-building"></i> 지사 목록</h5>
+            <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+                {% with search_input_id='branchSearchInput', search_button_id='branchSearchBtn', search_placeholder='지사명 · 코드 · 지사장명', show_nav_buttons=true, show_reset=false %}
+                {% include 'partials/admin_search_bar.html' %}
+                {% endwith %}
+                <button class="btn btn-outline-warning btn-sm" onclick="goToMonthlySettlementSummary()">
+                    <i class="fa-solid fa-table me-1"></i>월 정산 요약 표
+                </button>
+                <button id="btnDownloadAll" class="btn btn-outline-primary btn-sm" onclick="downloadAllStatements()">
+                    <i class="fa-solid fa-file-arrow-down me-1"></i>정산서 한번에 내려받기
+                </button>
+                <div class="text-muted">총 지사: {{ dashboard.branch_count }}</div>
+            </div>
+        </div>
+        <div class="home-branch-table-wrap home-branch-table-wrap--head">
+            <table class="table mb-0 home-branch-table home-branch-table--head">
+                <colgroup>
+                    <col style="width:48px">
+                    <col>
+                    <col>
+                    <col style="width:140px">
+                    <col style="width:150px">
+                    <col style="width:150px">
+                    <col style="width:150px">
+                    <col style="width:150px">
+                    <col style="width:180px">
+                </colgroup>
+                <thead class="table-light">
+                    <tr>
+                        <th>#</th>
+                        <th>지사명 (코드)</th>
+                        <th>지사장명</th>
+                        <th>{{ sales_year }}년 총매출</th>
+                        <th>정산 개요</th>
+                        <th>소속 원장별 월매출</th>
+                        <th>소속 원장별 일별 매출</th>
+                        <th>정산서</th>
+                        <th>소속 원장 리스트</th>
+                    </tr>
+                </thead>
+            </table>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <div class="home-branch-table-wrap home-branch-table-wrap--body">
+            <table class="table table-hover mb-0 home-branch-table home-branch-table--body">
+                <colgroup>
+                    <col style="width:48px">
+                    <col>
+                    <col>
+                    <col style="width:140px">
+                    <col style="width:150px">
+                    <col style="width:150px">
+                    <col style="width:150px">
+                    <col style="width:150px">
+                    <col style="width:180px">
+                </colgroup>
+                <tbody id="branchTableBody">
+                    {% for b in branches %}
+                    <tr class="branch-row"
+                        data-branch-name="{{ b.name | e }}"
+                        data-branch-code="{{ b.code | e }}"
+                        data-branch-manager="{{ b.manager_name | e }}">
+                        <td>{{ loop.index }}</td>
+                        <td class="branch-searchable branch-cell-company">{{ b.name }} <small class="text-muted">({{ b.code }})</small></td>
+                        <td class="branch-searchable branch-cell-manager">{{ b.manager_name }}</td>
+                        <td class="text-end">
+                            {% if b.yearly_sales %}
+                                {{ "{:,}".format(b.yearly_sales) }} 원
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            <a href="{{ b.links.overview }}" class="btn btn-sm btn-outline-primary w-100">보기</a>
+                        </td>
+                        <td class="text-center">
+                            <a href="{{ b.links.status }}" class="btn btn-sm btn-outline-secondary w-100">보기</a>
+                        </td>
+                        <td class="text-center">
+                            <a href="{{ b.links.daily_status }}" class="btn btn-sm btn-outline-warning w-100">보기</a>
+                        </td>
+                        <td class="text-center">
+                            <a href="{{ b.links.statement }}" class="btn btn-sm btn-outline-info w-100">보기</a>
+                        </td>
+                        <td class="text-center">
+                            <a href="{{ b.links.teachers }}" class="btn btn-sm btn-outline-success w-100">보기</a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="9" class="text-center text-muted">등록된 지사가 없습니다.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<style>
+.card-stats {
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    border: none;
+    transition: all 0.3s ease;
+}
+
+.card-stats:hover {
+    box-shadow: 0 1rem 2rem rgba(0, 0, 0, 0.2);
+    transform: translateY(-2px);
+}
+
+.page-header {
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.page-title {
+    font-size: 2rem;
+    font-weight: 600;
+    color: #212529;
+    margin-bottom: 0.5rem;
+}
+
+.card {
+    border: none;
+    border-radius: 0.5rem;
+}
+
+.home-branch-sticky-header {
+    position: sticky;
+    top: 0;
+    z-index: 104;
+    background-color: #f8f9fa;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.home-branch-card__toolbar {
+    border-bottom: none;
+    box-shadow: none;
+}
+
+.home-branch-table-wrap {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+}
+
+.home-branch-table-wrap--head {
+    border-bottom: 1px solid #dee2e6;
+}
+
+.home-branch-table {
+    table-layout: fixed;
+    width: 100%;
+    min-width: 1180px;
+    margin-bottom: 0;
+}
+
+.home-branch-table--head th {
+    white-space: nowrap;
+    background-color: #f8f9fa;
+    border-bottom: none;
+}
+
+.home-branch-table--body td {
+    vertical-align: middle;
+}
+
+.card-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #e9ecef;
+    font-weight: 600;
+}
+
+.list-group-item-action:hover {
+    background-color: #f8f9fa;
+}
+
+.admin-search-bar .form-control {
+    width: 200px;
+}
+
+.branch-search-mark {
+    background-color: #fff3cd;
+    color: #212529;
+    padding: 0 2px;
+    border-radius: 2px;
+    font-weight: 600;
+}
+
+tr.branch-row.branch-search-match {
+    background-color: #fffbea;
+}
+
+tr.branch-row.branch-search-current {
+    background-color: #ffe69c;
+    outline: 2px solid #ffc107;
+    outline-offset: -2px;
+}
+</style>
+
+<script>
+// 로딩 오버레이 숨기기 (뒤로가기 대응)
+function hideLoading() {
+  const overlay = document.getElementById('adminLoadingOverlay');
+  if (overlay) {
+    overlay.classList.remove('show');
+  }
+  // AdminLoading이 있으면 사용
+  if (window.AdminLoading && window.AdminLoading.hide) {
+    window.AdminLoading.hide();
+  }
+}
+
+// 페이지 로드 시 로딩 숨기기
+window.addEventListener('pageshow', hideLoading);
+document.addEventListener('DOMContentLoaded', hideLoading);
+
+// 사이드바 메뉴 활성화 (홈)
+document.addEventListener('DOMContentLoaded', function() {
+  hideLoading();
+
+  (function initHomeBranchStickyHeader() {
+    const headWrap = document.querySelector('.home-branch-table-wrap--head');
+    const bodyWrap = document.querySelector('.home-branch-table-wrap--body');
+    if (!headWrap || !bodyWrap) return;
+
+    let syncing = false;
+    function syncScroll(source, target) {
+      if (syncing) return;
+      syncing = true;
+      target.scrollLeft = source.scrollLeft;
+      syncing = false;
+    }
+
+    bodyWrap.addEventListener('scroll', function() {
+      syncScroll(bodyWrap, headWrap);
+    });
+    headWrap.addEventListener('scroll', function() {
+      syncScroll(headWrap, bodyWrap);
+    });
+  })();
+  
+  const currentPath = window.location.pathname;
+  const sidebarLinks = document.querySelectorAll('.navbar-nav .nav-link, .sidebar .nav-link');
+  
+  sidebarLinks.forEach(link => {
+    const href = link.getAttribute('href');
+    if (href && currentPath.includes('home')) {
+      if (href.includes('home')) {
+        link.classList.add('active');
+        // 상위 dropdown도 열기
+        const dropdown = link.closest('.dropdown');
+        if (dropdown) {
+          dropdown.classList.add('show');
+          const dropdownToggle = dropdown.querySelector('.dropdown-toggle');
+          if (dropdownToggle) dropdownToggle.classList.add('active');
+        }
+      }
+    }
+  });
+});
+
+// 정산서 일괄 다운로드
+function downloadAllStatements() {
+  var btn = document.getElementById('btnDownloadAll');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i>다운로드 중...';
+  
+  fetch('/api/admin/settlement/export-all-statements-zip')
+    .then(function(resp) {
+      if (!resp.ok) {
+        return resp.json().then(function(data) { throw new Error(data.message || '다운로드 실패'); });
+      }
+      return resp.blob();
+    })
+    .then(function(blob) {
+      var url = window.URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = '정산서_전체.zip';
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      a.remove();
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-file-arrow-down me-1"></i>정산서 한번에 내려받기';
+    })
+    .catch(function(err) {
+      alert('다운로드에 실패했습니다: ' + err.message);
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-file-arrow-down me-1"></i>정산서 한번에 내려받기';
+    });
+}
+
+// 월 정산 요약 표로 이동
+function goToMonthlySettlementSummary() {
+  window.location.href = '/admin/monthly-settlement-summary';
+}
+
+// 지사 목록 검색 (스크롤 + 하이라이트)
+(function() {
+  const tbody = document.getElementById('branchTableBody');
+  if (!tbody) return;
+
+  const searchInput = document.getElementById('branchSearchInput');
+  const searchBtn = document.getElementById('branchSearchBtn');
+  const prevBtn = document.getElementById('branchSearchPrev');
+  const nextBtn = document.getElementById('branchSearchNext');
+  const statusEl = document.getElementById('branchSearchStatus');
+
+  const rows = Array.from(tbody.querySelectorAll('tr.branch-row'));
+  rows.forEach(function(row) {
+    row.querySelectorAll('.branch-searchable').forEach(function(cell) {
+      cell.dataset.originalHtml = cell.innerHTML;
+    });
+  });
+
+  let matchedRows = [];
+  let currentIndex = 0;
+
+  function escapeRegex(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function highlightText(text, query) {
+    if (!query) return text;
+    const re = new RegExp(escapeRegex(query), 'gi');
+    return text.replace(re, function(match) {
+      return '<mark class="branch-search-mark">' + match + '</mark>';
+    });
+  }
+
+  function restoreCells() {
+    rows.forEach(function(row) {
+      row.classList.remove('branch-search-match', 'branch-search-current');
+      row.querySelectorAll('.branch-searchable').forEach(function(cell) {
+        if (cell.dataset.originalHtml !== undefined) {
+          cell.innerHTML = cell.dataset.originalHtml;
+        }
+      });
+    });
+  }
+
+  function rebuildCompanyCell(row, query) {
+    const cell = row.querySelector('.branch-cell-company');
+    if (!cell) return;
+    const name = row.dataset.branchName || '';
+    const code = row.dataset.branchCode || '';
+    cell.innerHTML = highlightText(name, query) + ' <small class="text-muted">(' + highlightText(code, query) + ')</small>';
+  }
+
+  function rebuildManagerCell(row, query) {
+    const cell = row.querySelector('.branch-cell-manager');
+    if (!cell) return;
+    const manager = row.dataset.branchManager || '';
+    cell.innerHTML = highlightText(manager, query);
+  }
+
+  function rowMatches(row, queryLower) {
+    const name = (row.dataset.branchName || '').toLowerCase();
+    const code = (row.dataset.branchCode || '').toLowerCase();
+    const manager = (row.dataset.branchManager || '').toLowerCase();
+    return name.includes(queryLower) || code.includes(queryLower) || manager.includes(queryLower);
+  }
+
+  function updateNavButtons() {
+    const hasMultiple = matchedRows.length > 1;
+    prevBtn.disabled = !hasMultiple;
+    nextBtn.disabled = !hasMultiple;
+  }
+
+  function updateStatus() {
+    if (!statusEl) return;
+    if (matchedRows.length === 0) {
+      statusEl.textContent = '';
+      return;
+    }
+    statusEl.textContent = currentIndex + 1 + ' / ' + matchedRows.length;
+  }
+
+  function focusMatch(index, scroll) {
+    if (matchedRows.length === 0) return;
+
+    matchedRows.forEach(function(row) {
+      row.classList.remove('branch-search-current');
+    });
+
+    currentIndex = ((index % matchedRows.length) + matchedRows.length) % matchedRows.length;
+    const target = matchedRows[currentIndex];
+    target.classList.add('branch-search-current');
+
+    if (scroll) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    updateStatus();
+    updateNavButtons();
+  }
+
+  function runSearch(scrollToFirst) {
+    const query = (searchInput.value || '').trim();
+    restoreCells();
+    matchedRows = [];
+    currentIndex = 0;
+
+    if (!query) {
+      updateStatus();
+      updateNavButtons();
+      if (statusEl) statusEl.textContent = '';
+      return;
+    }
+
+    const queryLower = query.toLowerCase();
+    matchedRows = rows.filter(function(row) {
+      return rowMatches(row, queryLower);
+    });
+
+    if (matchedRows.length === 0) {
+      if (statusEl) statusEl.textContent = '결과 없음';
+      updateNavButtons();
+      return;
+    }
+
+    matchedRows.forEach(function(row) {
+      row.classList.add('branch-search-match');
+      rebuildCompanyCell(row, query);
+      rebuildManagerCell(row, query);
+    });
+
+    searchInput.dataset.lastQuery = query;
+    focusMatch(0, scrollToFirst);
+  }
+
+  function goToNext() {
+    if (matchedRows.length === 0) {
+      runSearch(true);
+      return;
+    }
+    focusMatch(currentIndex + 1, true);
+  }
+
+  function goToPrev() {
+    if (matchedRows.length === 0) {
+      runSearch(true);
+      return;
+    }
+    focusMatch(currentIndex - 1, true);
+  }
+
+  searchBtn.addEventListener('click', function() {
+    const query = (searchInput.value || '').trim();
+    if (query && query === (searchInput.dataset.lastQuery || '') && matchedRows.length > 0) {
+      goToNext();
+    } else {
+      runSearch(true);
+    }
+  });
+
+  searchInput.addEventListener('keydown', function(event) {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      if (event.shiftKey) {
+        goToPrev();
+        return;
+      }
+      const query = (searchInput.value || '').trim();
+      if (query && query === (searchInput.dataset.lastQuery || '') && matchedRows.length > 0) {
+        goToNext();
+      } else {
+        runSearch(true);
+      }
+    }
+  });
+
+  searchInput.addEventListener('input', function() {
+    if (!(searchInput.value || '').trim()) {
+      searchInput.dataset.lastQuery = '';
+      runSearch(false);
+    }
+  });
+
+  prevBtn.addEventListener('click', goToPrev);
+  nextBtn.addEventListener('click', goToNext);
+})();
+</script>
+{% endblock %}

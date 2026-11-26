@@ -1,0 +1,31 @@
+{# 공통 관리자 검색바 (홈 지사 목록 · SQLAdmin 리스트 등)
+   - 서버 검색: search-input / search-button / search-reset (sqladmin main.js)
+   - 클라이언트 검색: branchSearchInput 등 커스텀 id + show_nav_buttons #}
+{% set input_id = search_input_id | default('search-input') %}
+{% set btn_id = search_button_id | default('search-button') %}
+{% set reset_id = search_reset_id | default('search-reset') %}
+{% set ph = search_placeholder | default('검색어 입력') %}
+{% set val = search_value | default('') %}
+{% set btn_label = search_button_label | default('찾기') %}
+{% set nav = show_nav_buttons | default(false) %}
+{% set reset = show_reset | default(true) %}
+<div class="admin-search-bar d-flex align-items-center gap-2 flex-wrap justify-content-end">
+  <input type="search"
+         id="{{ input_id }}"
+         class="form-control form-control-sm"
+         placeholder="{{ ph }}"
+         value="{{ val }}"
+         autocomplete="off"
+         aria-label="{{ ph }}">
+  <button type="button" id="{{ btn_id }}" class="btn btn-sm btn-dark">{{ btn_label }}</button>
+  {% if nav %}
+  <button type="button" id="branchSearchPrev" class="btn btn-sm btn-outline-secondary" title="이전 결과" disabled aria-label="이전 결과">▲</button>
+  <button type="button" id="branchSearchNext" class="btn btn-sm btn-outline-secondary" title="다음 결과" disabled aria-label="다음 결과">▼</button>
+  <span id="branchSearchStatus" class="text-muted small" style="min-width: 5rem;"></span>
+  {% endif %}
+  {% if reset %}
+  <button type="button" id="{{ reset_id }}" class="btn btn-sm btn-outline-secondary" title="검색 초기화" {% if not val|trim %}disabled{% endif %}>
+    <i class="fa-solid fa-times"></i>
+  </button>
+  {% endif %}
+</div>

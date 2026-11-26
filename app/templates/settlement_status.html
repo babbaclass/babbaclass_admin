@@ -1,0 +1,546 @@
+{% extends "sqladmin/layout.html" %}
+
+{% block content %}
+<!-- 안내 메시지 -->
+<div class="alert alert-info d-flex align-items-center mb-4" role="alert">
+    <i class="fa-solid fa-info-circle me-2"></i>
+    <div>
+        <strong>안내:</strong> 이름을 누르면 각 원장의 정산 상세 내역을 볼 수 있습니다.
+    </div>
+</div>
+
+<div class="col-12">
+  <div class="card">
+    {% if year_tabs %}
+    <div class="card-year-tabs py-2 px-4 border-bottom">
+      <div class="year-tab-wrapper">
+        {% for year in year_tabs %}
+        <button type="button" class="btn btn-sm settlement-year-tab {% if selected_year and year == selected_year %}btn-primary{% else %}btn-outline-secondary{% endif %}" data-year="{{ year }}">{{ year }}년</button>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    <div class="card-header d-flex align-items-center justify-content-between">
+      <div>
+        <h3 class="card-title mb-0">소속 원장별 월매출</h3>
+        <p class="text-muted mb-0 small">월별 매출 정산 · 월 1회</p>
+      </div>
+      <div class="card-actions">
+        <form id="settlementStatusForm" method="GET" class="d-flex align-items-center gap-2">
+          <input type="hidden" name="year" id="settlementStatusYearInput" value="{% if selected_year %}{{ selected_year }}{% elif year_tabs %}{{ year_tabs[0] }}{% endif %}">
+          {% if company_id %}
+          <input type="hidden" name="company_id" value="{{ company_id }}">
+          {% endif %}
+          <button type="button" id="excelDownloadBtn" class="btn btn-dark" onclick="downloadSettlementExcel()">엑셀 다운로드</button>
+          <select name="sort_by" id="settlementSortSelect" class="form-select" style="width: auto;">
+            <option value="amount_desc" {% if sort_by == 'amount_desc' %}selected{% endif %}>총액 높은 순</option>
+            <option value="amount_asc" {% if sort_by == 'amount_asc' %}selected{% endif %}>총액 낮은 순</option>
+            <option value="name_asc" {% if sort_by == 'name_asc' %}selected{% endif %}>이름순</option>
+          </select>
+          <select name="month" id="settlementStatusMonthSelect" class="form-select" style="width: auto;">
+            <option value="전체" {% if selected_month == '전체' %}selected{% endif %}>누적 총액</option>
+            {% if selected_year and months_by_year[selected_year] %}
+              {% for month_value in months_by_year[selected_year] %}
+              <option value="{{ month_value }}" {% if month_value == selected_month %}selected{% endif %}>{{ month_value }}</option>
+              {% endfor %}
+            {% endif %}
+          </select>
+          <button type="submit" class="btn btn-primary">필터 적용</button>
+        </form>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table table-striped">
+        <thead>
+          <tr>
+            <th style="text-align:center; font-weight:bold;">순번</th>
+            <th style="font-weight:bold;">이름</th>
+            <th style="font-weight:bold;">연락처</th>
+            <th style="text-align:right; font-weight:bold;">판매가 총액</th>
+            <th style="text-align:right; font-weight:bold;">배송비 총액</th>
+            <th style="text-align:right; font-weight:bold;">사용된 적립금</th>
+            <th style="text-align:right; font-weight:bold;">실결제총액</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if summary %}
+          <tr style="background-color:#fffacd; font-weight:bold;">
+            <td style="text-align:center;">합계</td>
+            <td></td>
+            <td></td>
+            <td style="text-align:right;">{{ "{:,}".format(summary.sell_price_total) }} 원</td>
+            <td style="text-align:right;">{{ "{:,}".format(summary.delivery_total) }} 원</td>
+            <td style="text-align:right;">{{ "{:,}".format(summary.used_reserve_total) }} 원</td>
+            <td style="text-align:right;">{{ "{:,}".format(summary.actual_payment_total) }} 원</td>
+          </tr>
+          {% endif %}
+          {% if data %}
+            {% for row in data %}
+            {% set is_manager_row = row.is_branch_manager or (branch_manager_user_id and row.user_id == branch_manager_user_id) %}
+            <tr class="{% if is_manager_row %}branch-manager-row{% else %}clickable-row{% endif %}"
+                {% if not is_manager_row %}data-user-id="{{ row.user_id }}" style="cursor: pointer;"{% endif %}>
+              <td style="text-align:center;">{{ row.no }}</td>
+              <td>{% if is_manager_row %}{{ row.name }} <span class="text-muted small">(지사장)</span>{% else %}{{ row.name }}{% endif %}</td>
+              <td>{{ row.phone }}</td>
+              <td style="text-align:right;">{{ "{:,}".format(row.sell_price_total) }} 원</td>
+              <td style="text-align:right;">{{ "{:,}".format(row.delivery_total) }} 원</td>
+              <td style="text-align:right;">{{ "{:,}".format(row.used_reserve_total) }} 원</td>
+              <td style="text-align:right;">{{ "{:,}".format(row.actual_payment_total) }} 원</td>
+            </tr>
+            {% endfor %}
+          {% else %}
+          <tr>
+            <td colspan="8" style="text-align:center; padding:2rem; color:#999;">데이터가 없습니다.</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 상세 정보 모달 -->
+  <div id="detailModal" class="modal fade" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-dialog-scrollable" role="document" style="max-width: 95%; width: 1400px;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="modalTitle">원장 상세 정산 정보</h5>
+          <button type="button" class="btn-close" aria-label="Close" onclick="closeDetailModal()"></button>
+        </div>
+        <div class="modal-body" id="modalBody" style="max-height: 70vh;">
+          <div class="text-center py-4">
+            <div class="spinner-border text-primary" role="status">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeDetailModal()">닫기</button>
+          <a id="statementViewBtn" href="#" class="btn btn-primary" target="_blank">정산서 보기</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  /* 모달 크기 조정 */
+  .modal-dialog {
+    margin: 1.75rem auto;
+  }
+  .modal-body {
+    padding: 1.5rem;
+  }
+  .modal-backdrop {
+    background-color: rgba(0,0,0,0.5);
+  }
+  .clickable-row:hover {
+    background-color: #e3f2fd !important;
+    transition: background-color 0.2s;
+  }
+  .table.table-striped tbody tr.branch-manager-row > td,
+  .table.table-striped tbody tr.branch-manager-row > th {
+    --bs-table-accent-bg: #fae5e5;
+    background-color: #fae5e5 !important;
+  }
+  .table.table-striped tbody tr.branch-manager-row:hover > td,
+  .table.table-striped tbody tr.branch-manager-row:hover > th {
+    --bs-table-accent-bg: #f5d0d0;
+    background-color: #f5d0d0 !important;
+  }
+  #settlementStatusForm .form-select,
+  #settlementStatusForm .btn {
+    font-size: 0.95rem;
+  }
+  .detail-info-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1rem;
+  }
+  .detail-info-table td, .detail-info-table th {
+    border: 1px solid #ddd;
+    padding: 8px;
+  }
+  .detail-info-table .label {
+    background: #f5f5f5;
+    width: 150px;
+    font-weight: bold;
+  }
+  .detail-orders-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+  .detail-orders-table th {
+    background: #2196f3;
+    color: white;
+    padding: 8px;
+    text-align: center;
+  }
+  .detail-orders-table td {
+    border: 1px solid #ddd;
+    padding: 6px;
+    text-align: center;
+  }
+  .detail-orders-table .text-right {
+    text-align: right;
+  }
+  .card-year-tabs {
+    background: #f8f9fa;
+    border-bottom: 1px solid #dee2e6;
+  }
+  .year-tab-wrapper {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .settlement-year-tab {
+    min-width: 90px;
+  }
+</style>
+
+<script>
+const companyId = {{ company_id | tojson }};
+const monthsByYear = {{ months_by_year | default({}) | tojson | safe }};
+const initialSelectedYear = "{{ selected_year or '' }}";
+const initialSelectedMonth = "{{ selected_month or '전체' }}";
+const initialSortBy = "{{ sort_by or 'amount_desc' }}";
+const fallbackYearTab = "{{ year_tabs[0] if year_tabs else '' }}";
+let detailModalInstance = null;
+
+document.addEventListener('DOMContentLoaded', function() {
+  const modalElement = document.getElementById('detailModal');
+  if (modalElement) {
+    detailModalInstance = new bootstrap.Modal(modalElement);
+  }
+
+  const currentPath = window.location.pathname;
+  const sidebarLinks = document.querySelectorAll('.navbar-nav .nav-link, .sidebar .nav-link');
+  sidebarLinks.forEach(link => {
+    const href = link.getAttribute('href');
+    if (href && currentPath.includes('settlement-status') && href.includes('settlement-status')) {
+      link.classList.add('active');
+    }
+  });
+
+  const rows = document.querySelectorAll('.clickable-row:not(.branch-manager-row)');
+  const selectedMonth = initialSelectedMonth;
+  rows.forEach(row => {
+    row.addEventListener('click', function() {
+      const userId = this.getAttribute('data-user-id');
+      loadUserDetail(userId, selectedMonth);
+    });
+  });
+
+  initSettlementYearTabs();
+});
+
+function loadUserDetail(userId, month) {
+  const modalBody = document.getElementById('modalBody');
+  const modalTitle = document.getElementById('modalTitle');
+  modalBody.innerHTML = `
+    <div class="text-center py-4">
+      <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+      <p class="mt-2">데이터를 불러오는 중...</p>
+    </div>
+  `;
+  if (detailModalInstance) {
+    detailModalInstance.show();
+  }
+  let url = `/api/admin/settlement/status-detail/${userId}?month=${encodeURIComponent(month)}`;
+  const yearInput = document.getElementById('settlementStatusYearInput');
+  const selectedYear = (yearInput && yearInput.value) || initialSelectedYear || '';
+  if (selectedYear) {
+    url += `&year=${encodeURIComponent(selectedYear)}`;
+  }
+  if (companyId) {
+    url += `&company_id=${companyId}`;
+  }
+  fetch(url)
+    .then(response => response.json())
+    .then(data => {
+      if (data.status === 'success') {
+        renderDetailContent(data, modalTitle, modalBody, month);
+      } else {
+        modalBody.innerHTML = `<div class="alert alert-danger">${data.message || '데이터를 불러올 수 없습니다.'}</div>`;
+      }
+    })
+    .catch(error => {
+      modalBody.innerHTML = `<div class="alert alert-danger">오류 발생: ${error.message}</div>`;
+    });
+}
+
+function renderDetailContent(data, modalTitle, modalBody, month) {
+  const user = data.user;
+  const items = data.data || [];
+  let monthLabel = '';
+  if (month === '전체') {
+    monthLabel = ' (전체)';
+  } else if (month && month !== '') {
+    const [year, mon] = month.split('-');
+    monthLabel = ` (${year}년 ${mon}월)`;
+  }
+  modalTitle.textContent = `${user.name} 원장 정산 상세${monthLabel}`;
+  const formatNumber = (num) => parseInt(num || 0).toLocaleString('ko-KR');
+  const formatOrderDate = (dateStr) => {
+    if (!dateStr || dateStr.length < 8) return '-';
+    const year = dateStr.substring(0, 4);
+    const month = dateStr.substring(4, 6);
+    const day = dateStr.substring(6, 8);
+    return `${month}/${day}`;
+  };
+  const filteredItems = items.filter(item => (item.commission || 0) !== 0);
+  const groupedByType = {};
+  filteredItems.forEach(item => {
+    const typeName = item.type_name || '기타';
+    if (!groupedByType[typeName]) {
+      groupedByType[typeName] = [];
+    }
+    groupedByType[typeName].push(item);
+  });
+  let itemsHtml = '';
+  let totalPayment = 0;
+  let totalActualPayment = 0;
+  let totalSettlement = 0;
+  if (filteredItems.length > 0) {
+    Object.keys(groupedByType).forEach(typeName => {
+      const typeItems = groupedByType[typeName];
+      let typePayment = 0;
+      let typeActualPayment = 0;
+      let typeSettlement = 0;
+      typeItems.forEach(item => {
+        const sellPrice = item.payment_amount || 0;
+        const paymentAmount = item.actual_payment || 0;
+        const settlement = item.commission || 0;
+        typePayment += sellPrice;
+        typeActualPayment += paymentAmount;
+        typeSettlement += settlement;
+        totalPayment += sellPrice;
+        totalActualPayment += paymentAmount;
+        totalSettlement += settlement;
+        itemsHtml += `
+          <tr>
+            <td>${formatOrderDate(item.order_date)}</td>
+            <td>${typeName}</td>
+            <td style="text-align:left;">${item.product_name || '-'}</td>
+            <td class="text-right">${item.quantity || 0}</td>
+            <td class="text-right">${formatNumber(sellPrice)}</td>
+            <td class="text-right">${formatNumber(paymentAmount)}</td>
+            <td class="text-right">${item.rate ? item.rate + '%' : '-'}</td>
+            <td class="text-right">${formatNumber(settlement)}</td>
+          </tr>
+        `;
+      });
+      itemsHtml += `
+        <tr style="background:#e6f3ff; font-weight:bold;">
+          <td colspan="4" style="text-align:right;">${typeName} 소계</td>
+          <td class="text-right">${formatNumber(typePayment)}</td>
+          <td class="text-right">${formatNumber(typeActualPayment)}</td>
+          <td>-</td>
+          <td class="text-right">${formatNumber(typeSettlement)}</td>
+        </tr>
+      `;
+    });
+  } else {
+    itemsHtml = '<tr><td colspan="8" style="text-align:center; color:#999;">정산 내역이 없습니다.</td></tr>';
+  }
+  modalBody.innerHTML = `
+    <table class="detail-info-table">
+      <tr>
+        <td class="label">원장명</td>
+        <td>${user.name}</td>
+        <td class="label">로그인 ID</td>
+        <td>${user.login_id || '-'}</td>
+      </tr>
+    </table>
+    <h6 class="mt-3 mb-2">주문별 정산 상세 내역</h6>
+    <div style="max-height: 400px; overflow-y: auto;">
+      <table class="detail-orders-table">
+        <thead>
+          <tr>
+            <th>주문일</th>
+            <th>결제종류</th>
+            <th>상품명</th>
+            <th>수량</th>
+            <th>판매금액</th>
+            <th>결제금액</th>
+            <th>수수료율</th>
+            <th>정산액</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${itemsHtml}
+        </tbody>
+        <tfoot>
+          <tr style="background:#fffacd; font-weight:bold;">
+            <td colspan="4" style="text-align:right;">총 합계</td>
+            <td class="text-right">${formatNumber(totalPayment)}</td>
+            <td class="text-right">${formatNumber(totalActualPayment)}</td>
+            <td>-</td>
+            <td class="text-right">${formatNumber(totalSettlement)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  `;
+  const statementBtn = document.getElementById('statementViewBtn');
+  if (month && month !== '전체') {
+    const [yearPart, monthPart] = month.split('-');
+    let statementUrl = `/admin/settlement-statement-detail?year=${yearPart}&month=${parseInt(monthPart, 10)}`;
+    if (companyId) {
+      statementUrl += `&company_id=${companyId}`;
+    }
+    statementBtn.href = statementUrl;
+    statementBtn.style.display = 'inline-block';
+  } else {
+    statementBtn.style.display = 'none';
+  }
+}
+
+function closeDetailModal() {
+  if (detailModalInstance) {
+    detailModalInstance.hide();
+  }
+  const backdrop = document.querySelector('.modal-backdrop');
+  if (backdrop) {
+    backdrop.remove();
+  }
+  document.body.classList.remove('modal-open');
+  document.body.style.overflow = '';
+  document.body.style.paddingRight = '';
+}
+
+function initSettlementYearTabs() {
+  const yearTabs = Array.from(document.querySelectorAll('.settlement-year-tab'));
+  const monthSelect = document.getElementById('settlementStatusMonthSelect');
+  const yearInput = document.getElementById('settlementStatusYearInput');
+  const form = document.getElementById('settlementStatusForm');
+
+  if (!monthSelect || !yearInput || !form || !yearTabs.length) {
+    return;
+  }
+
+  const setActiveTab = (year) => {
+    yearTabs.forEach(tab => {
+      const isActive = tab.dataset.year === year;
+      tab.classList.toggle('btn-primary', isActive);
+      tab.classList.toggle('btn-outline-secondary', !isActive);
+    });
+    yearInput.value = year || '';
+  };
+
+  const renderMonthOptions = (year, selectedValue) => {
+    const months = monthsByYear[year] || [];
+    const targetValue = selectedValue ?? (months.length ? months[0] : '전체');
+    const options = [`<option value="전체"${targetValue === '전체' ? ' selected' : ''}>누적 총액</option>`];
+    months.forEach(monthValue => {
+      const isSelected = monthValue === targetValue;
+      options.push(`<option value="${monthValue}"${isSelected ? ' selected' : ''}>${monthValue}</option>`);
+    });
+    monthSelect.innerHTML = options.join('');
+    monthSelect.value = targetValue;
+  };
+
+  const applyYearSelection = (year, monthValue, shouldSubmit) => {
+    if (!year) {
+      return;
+    }
+    setActiveTab(year);
+    renderMonthOptions(year, monthValue);
+    if (shouldSubmit) {
+      form.submit();
+    }
+  };
+
+  yearTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const year = tab.dataset.year;
+      if (!year) {
+        return;
+      }
+      const latestMonth = (monthsByYear[year] && monthsByYear[year][0]) || '전체';
+      applyYearSelection(year, latestMonth, true);
+    });
+  });
+
+  const initialYear = initialSelectedYear || fallbackYearTab;
+  if (initialYear) {
+    applyYearSelection(initialYear, initialSelectedMonth, false);
+  }
+}
+
+function downloadSettlementExcel() {
+  const monthSelect = document.getElementById('settlementStatusMonthSelect');
+  const sortSelect = document.getElementById('settlementSortSelect');
+  const yearInput = document.getElementById('settlementStatusYearInput');
+  const excelBtn = document.getElementById('excelDownloadBtn');
+  
+  if (!monthSelect || !sortSelect || !yearInput) {
+    alert('필터 정보를 찾을 수 없습니다.');
+    return;
+  }
+  
+  const month = monthSelect.value || '전체';
+  const sortBy = sortSelect.value || 'amount_desc';
+  const year = yearInput.value || '';
+  
+  // 버튼 상태 변경 (로딩 중)
+  if (excelBtn) {
+    excelBtn.disabled = true;
+    const originalText = excelBtn.innerHTML;
+    excelBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>다운로드 중...';
+    
+    // 3초 후 버튼 복구 (타임아웃 방지)
+    setTimeout(() => {
+      excelBtn.disabled = false;
+      excelBtn.innerHTML = originalText;
+    }, 3000);
+  }
+  
+  let url = `/api/admin/settlement/status-excel?month=${encodeURIComponent(month)}&sort_by=${encodeURIComponent(sortBy)}`;
+  if (year) {
+    url += `&year=${encodeURIComponent(year)}`;
+  }
+  if (companyId) {
+    url += `&company_id=${companyId}`;
+  }
+  
+  // window.location.href 대신 fetch 사용하여 에러 처리
+  fetch(url)
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(`서버 오류: ${response.status}`);
+      }
+      return response.blob();
+    })
+    .then(blob => {
+      // 파일 다운로드
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `원장별_매출액_${month || '누적'}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+      
+      // 버튼 복구
+      if (excelBtn) {
+        excelBtn.disabled = false;
+        const originalText = excelBtn.innerHTML.replace('<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>다운로드 중...', '') || '엑셀 다운로드';
+        excelBtn.innerHTML = '엑셀 다운로드';
+      }
+    })
+    .catch(error => {
+      console.error('다운로드 오류:', error);
+      alert(`다운로드 실패: ${error.message}`);
+      // 버튼 복구
+      if (excelBtn) {
+        excelBtn.disabled = false;
+        excelBtn.innerHTML = '엑셀 다운로드';
+      }
+    });
+}
+</script>
+{% endblock %}

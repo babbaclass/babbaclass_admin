@@ -1,0 +1,63 @@
+{% extends "sqladmin/layout.html" %}
+
+{% block content %}
+<div class="col-12">
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">정산서</h3>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table table-striped">
+        <thead>
+          <tr>
+            <th style="font-weight:bold;">정산 월</th>
+            <th style="text-align:center; font-weight:bold; width:100px;">액션</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in months_list %}
+          <tr>
+            <td>{{ m.display }}</td>
+            <td style="text-align:center;">
+              <a href="?year={{ m.year }}&month={{ m.month }}" class="btn btn-sm btn-primary">보기</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  
+  {% if detail_data %}
+  <div class="card mt-3">
+    <div class="card-header">
+      <h3 class="card-title">{{ selected_year }}년 {{ selected_month }}월 정산서</h3>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table table-striped">
+        <thead>
+          <tr>
+            <th style="font-weight:bold;">원장명</th>
+            <th style="text-align:right; font-weight:bold;">정산액</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in detail_data %}
+          <tr>
+            <td>{{ row.name }}</td>
+            <td style="text-align:right;">{{ "{:,}".format(row.commission) }} 원</td>
+          </tr>
+          {% endfor %}
+          <tr style="background-color:#fffacd; font-weight:bold;">
+            <td>합계</td>
+            <td style="text-align:right;">{{ "{:,}".format(detail_total) }} 원</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% elif detail_message %}
+  <div class="alert alert-info mt-3">{{ detail_message }}</div>
+  {% endif %}
+</div>
+{% endblock %}

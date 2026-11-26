@@ -1,0 +1,362 @@
+{% extends "sqladmin/list.html" %}
+{# Custom list template reuses the company_list layout but inserts dropdown filters like the settlement confirmation view. #}
+{% block content %}
+<div class="container-fluid">
+  <div class="row">
+    <div class="col-12">
+      <div class="d-flex">
+        <div class="flex-grow-1 me-2">
+          <div class="card">
+            <div class="card-header d-flex align-items-start align-items-md-center gap-2">
+              <div>
+                <h3 class="card-title">{{ model_view.name_plural }}</h3>
+                <p class="text-muted mb-0">정산서 확인 메뉴의 드롭다운 필터 스타일을 재사용한 회원 필터입니다.</p>
+              </div>
+              <div class="ms-auto">
+                {% if model_view.can_export %}
+                  {% if model_view.export_types | length > 1 %}
+                  <div class="ms-3 d-inline-block dropdown">
+                    <a href="#" class="btn btn-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">Export</a>
+                    <ul class="dropdown-menu">
+                      {% for export_type in model_view.export_types %}
+                      <li><a class="dropdown-item" href="{{ url_for('admin:export', identity=model_view.identity, export_type=export_type) }}">{{ export_type | upper }}</a></li>
+                      {% endfor %}
+                    </ul>
+                  </div>
+                  {% elif model_view.export_types | length == 1 %}
+                  <div class="ms-3 d-inline-block">
+                    <a href="{{ url_for('admin:export', identity=model_view.identity, export_type=model_view.export_types[0]) }}" class="btn btn-secondary">Export</a>
+                  </div>
+                  {% endif %}
+                {% endif %}
+                {% if model_view.get_filters() %}
+                <div class="ms-3 d-inline-block dropdown">
+                  <a href="#" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">Filters</a>
+                  <div class="dropdown-menu p-2" style="min-width:280px; max-height:400px; overflow:auto;">
+                    {% for filter in model_view.get_filters() %}
+                      <div class="mb-2">
+                        <div class="fw-bold small">{{ filter.title }}</div>
+                        <div class="d-flex flex-wrap gap-1">
+                          {% for lookup in filter.lookups(request, model_view.model, model_view._run_arbitrary_query) %}
+                            <a href="{{ request.url.include_query_params(**{filter.parameter_name: lookup[0]}) }}" class="btn btn-sm btn-light">{{ lookup[1] }}</a>
+                          {% endfor %}
+                        </div>
+                      </div>
+                    {% endfor %}
+                    <div class="mt-2 border-top pt-2">
+                      <a class="btn btn-sm btn-danger" href="{{ url_for('admin:list', identity=model_view.identity) }}">Reset All</a>
+                    </div>
+                  </div>
+                </div>
+                {% endif %}
+                {% if model_view.can_create %}
+                <div class="ms-3 d-inline-block">
+                  <a href="{{ url_for('admin:create', identity=model_view.identity) }}" class="btn btn-primary">+ New {{ model_view.name }}</a>
+                </div>
+                {% endif %}
+              </div>
+            </div>
+            <div class="card-body border-bottom">
+              <form method="get" class="row g-3 align-items-end">
+                <input type="hidden" name="sortBy" value="{{ request.query_params.get('sortBy','') }}">
+                <input type="hidden" name="sort" value="{{ request.query_params.get('sort','') }}">
+                <input type="hidden" name="page" value="{{ request.query_params.get('page','1') }}">
+                <input type="hidden" name="pageSize" value="{{ request.query_params.get('pageSize','') }}">
+                <input type="hidden" name="search" value="{{ request.query_params.get('search','') }}">
+                <div class="col-md-3">
+                  <label class="form-label">회사(지사)</label>
+                  <select class="form-select" name="company_id">
+                    <option value="">전체</option>
+                    {% set selected_company = request.query_params.get('company_id') %}
+                    {% for company in model_view.company_options %}
+                    {% set company_value = company.company_id | string %}
+                    <option value="{{ company.company_id }}" {% if company_value == selected_company %}selected{% endif %}>{{ company.name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">역할</label>
+                  <select class="form-select" name="role_id">
+                    <option value="">전체</option>
+                    {% set selected_role = request.query_params.get('role_id') %}
+                    {% for role in model_view.role_options %}
+                    {% set role_value = role.role_id | string %}
+                    <option value="{{ role.role_id }}" {% if role_value == selected_role %}selected{% endif %}>{{ role.role_name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label">가입 상태</label>
+                  <select class="form-select" name="is_register">
+                    {% set selected_register = request.query_params.get('is_register') %}
+                    <option value="" {% if not selected_register %}selected{% endif %}>전체</option>
+                    <option value="true" {% if selected_register == 'true' %}selected{% endif %}>가입 완료</option>
+                    <option value="false" {% if selected_register == 'false' %}selected{% endif %}>가입 전</option>
+                  </select>
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label">활성</label>
+                  <select class="form-select" name="is_active">
+                    {% set selected_active = request.query_params.get('is_active') %}
+                    <option value="" {% if not selected_active %}selected{% endif %}>전체</option>
+                    <option value="true" {% if selected_active == 'true' %}selected{% endif %}>활성</option>
+                    <option value="false" {% if selected_active == 'false' %}selected{% endif %}>비활성</option>
+                  </select>
+                </div>
+                <div class="col-md-2 text-end">
+                  <button type="submit" class="btn btn-primary w-100">필터 적용</button>
+                </div>
+                <div class="col-md-2 text-end">
+                  <a href="{{ url_for('admin:list', identity=model_view.identity) }}" class="btn btn-outline-secondary w-100">초기화</a>
+                </div>
+              </form>
+            </div>
+            <div class="card-body border-bottom py-3">
+              <div class="d-flex justify-content-between gap-2">
+                <div class="dropdown col-2">
+                  <button {% if not model_view.can_delete and not model_view._custom_actions_in_list %} disabled {% endif %} class="btn btn-light dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">Actions</button>
+                  {% if model_view.can_delete or model_view._custom_actions_in_list %}
+                  <div class="dropdown-menu">
+                    {% if model_view.can_delete %}
+                    <a class="dropdown-item" id="action-delete" href="#" data-name="{{ model_view.name }}" data-url="{{ url_for('admin:delete', identity=model_view.identity) }}" data-bs-toggle="modal" data-bs-target="#modal-delete">Delete selected items</a>
+                    {% endif %}
+                    {% for custom_action, label in model_view._custom_actions_in_list.items() %}
+                      {% if custom_action in model_view._custom_actions_confirmation %}
+                      <a class="dropdown-item" id="action-customconfirm-{{ custom_action }}" href="#" data-bs-toggle="modal" data-bs-target="#modal-confirmation-{{ custom_action }}">{{ label }}</a>
+                      {% else %}
+                      <a class="dropdown-item" id="action-custom-{{ custom_action }}" href="#" data-url="{{ model_view._url_for_action(request, custom_action) }}">{{ label }}</a>
+                      {% endif %}
+                    {% endfor %}
+                  </div>
+                  {% endif %}
+                </div>
+                {% set search_type = request.query_params.get('search_type', 'name') %}
+                {% set search_value = request.query_params.get('search_value', '') %}
+                <div class="col-md-5 text-muted">
+                  <div class="d-flex align-items-center gap-2 member-search-area">
+                    <select id="user-search-type" class="form-select" style="min-width: 140px;">
+                      <option value="name" {% if search_type == 'name' %}selected{% endif %}>이름</option>
+                      <option value="main_contact" {% if search_type == 'main_contact' %}selected{% endif %}>휴대폰번호</option>
+                      <option value="business_name" {% if search_type == 'business_name' %}selected{% endif %}>사업자명</option>
+                      <option value="address" {% if search_type == 'address' %}selected{% endif %}>주소</option>
+                      <option value="login_id" {% if search_type == 'login_id' %}selected{% endif %}>로그인ID</option>
+                      <option value="email" {% if search_type == 'email' %}selected{% endif %}>이메일</option>
+                    </select>
+                    <div class="input-group" style="min-width: 250px;">
+                      <input id="user-search-value" type="text" class="form-control" placeholder="검색어 입력" value="{{ search_value }}" aria-label="검색어 입력">
+                      <button id="user-search-button" class="btn btn-primary" type="button">검색</button>
+                      <button id="user-search-reset" class="btn btn-outline-secondary" type="button" {% if not search_value|trim %}disabled{% endif %}><i class="fa-solid fa-times"></i></button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="table card-table table-vcenter text-nowrap">
+                <thead>
+                  <tr>
+                    <th class="w-1"><input class="form-check-input m-0 align-middle" type="checkbox" aria-label="Select all" id="select-all"></th>
+                    <th class="w-1"></th>
+                    {% for name in model_view._list_prop_names %}
+                      {% set label = model_view._column_labels.get(name, name) %}
+                      <th>
+                        {% if name in model_view._sort_fields %}
+                          {% if request.query_params.get("sortBy") == name and request.query_params.get("sort") == "asc" %}
+                            <a href="{{ request.url.include_query_params(sort='desc') }}"><i class="fa-solid fa-arrow-up"></i> {{ label }}</a>
+                          {% elif request.query_params.get("sortBy") == name and request.query_params.get("sort") == "desc" %}
+                            <a href="{{ request.url.include_query_params(sort='asc') }}"><i class="fa-solid fa-arrow-down"></i> {{ label }}</a>
+                          {% else %}
+                            <a href="{{ request.url.include_query_params(sortBy=name, sort='asc') }}">{{ label }}</a>
+                          {% endif %}
+                        {% else %}
+                          {{ label }}
+                        {% endif %}
+                      </th>
+                    {% endfor %}
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in pagination.rows %}
+                  <tr>
+                    <td>
+                      <input type="hidden" value="{{ get_object_identifier(row) }}">
+                      <input class="form-check-input m-0 align-middle select-box" type="checkbox" aria-label="Select item">
+                    </td>
+                    <td class="text-end">
+                      {% if model_view.can_view_details %}
+                      <a href="{{ model_view._build_url_for('admin:details', request, row) }}" data-bs-toggle="tooltip" data-bs-placement="top" title="View"><span class="me-1"><i class="fa-solid fa-eye"></i></span></a>
+                      {% endif %}
+                      {% if model_view.can_edit %}
+                      <a href="{{ model_view._build_url_for('admin:edit', request, row) }}" data-bs-toggle="tooltip" data-bs-placement="top" title="Edit"><span class="me-1"><i class="fa-solid fa-pen-to-square"></i></span></a>
+                      {% endif %}
+                      {% if model_view.can_delete %}
+                      <a href="#" data-name="{{ model_view.name }}" data-pk="{{ get_object_identifier(row) }}" data-url="{{ model_view._url_for_delete(request, row) }}" data-bs-toggle="modal" data-bs-target="#modal-delete" title="Delete"><span class="me-1"><i class="fa-solid fa-trash"></i></span></a>
+                      {% endif %}
+                    </td>
+                    {% for name in model_view._list_prop_names %}
+                      {% set value, formatted_value = model_view.get_list_value(row, name) %}
+                      {% if name in model_view._relation_names %}
+                        {% if is_list(value) %}
+                        <td>
+                          {% for elem, formatted_elem in zip(value, formatted_value) %}
+                            {% if model_view.show_compact_lists %}
+                              <a href="{{ model_view._build_url_for('admin:details', request, elem) }}">({{ formatted_elem }})</a>
+                            {% else %}
+                              <a href="{{ model_view._build_url_for('admin:details', request, elem) }}">{{ formatted_elem }}</a><br/>
+                            {% endif %}
+                          {% endfor %}
+                        </td>
+                        {% else %}
+                        <td><a href="{{ model_view._url_for_details_with_prop(request, row, name) }}">{{ formatted_value }}</a></td>
+                        {% endif %}
+                      {% else %}
+                        <td>{{ formatted_value }}</td>
+                      {% endif %}
+                    {% endfor %}
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            <div class="card-footer d-flex justify-content-between align-items-center gap-2">
+              <p class="m-0 text-muted">Showing <span>{{ ((pagination.page - 1) * pagination.page_size) + 1 }}</span> to <span>{{ min(pagination.page * pagination.page_size, pagination.count) }}</span> of <span>{{ pagination.count }}</span> items</p>
+              <ul class="pagination m-0 ms-auto">
+                <li class="page-item {% if not pagination.has_previous %}disabled{% endif %}">
+                  {% if pagination.has_previous %}
+                  <a class="page-link" href="{{ pagination.previous_page.url }}">
+                  {% else %}
+                  <a class="page-link" href="#">
+                  {% endif %}
+                    <i class="fa-solid fa-chevron-left"></i> prev
+                  </a>
+                </li>
+                {% for page_control in pagination.page_controls %}
+                <li class="page-item {% if page_control.number == pagination.page %}active{% endif %}"><a class="page-link" href="{{ page_control.url }}">{{ page_control.number }}</a></li>
+                {% endfor %}
+                <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                  {% if pagination.has_next %}
+                  <a class="page-link" href="{{ pagination.next_page.url }}">
+                  {% else %}
+                  <a class="page-link" href="#">
+                  {% endif %}
+                    next <i class="fa-solid fa-chevron-right"></i>
+                  </a>
+                </li>
+              </ul>
+              <div class="dropdown text-muted">
+                Show
+                <a href="#" class="btn btn-sm btn-light dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">{{ request.query_params.get("pageSize") or model_view.page_size }} / Page</a>
+                <div class="dropdown-menu">
+                  {% for page_size_option in model_view.page_size_options %}
+                  <a class="dropdown-item" href="{{ request.url.include_query_params(pageSize=page_size_option, page=pagination.resize(page_size_option).page) }}">{{ page_size_option }} / Page</a>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% if model_view.can_delete %}
+  {% include 'sqladmin/modals/delete.html' %}
+  {% endif %}
+</div>
+
+<style>
+.member-search-area .form-select,
+.member-search-area .form-control,
+.member-search-area .btn {
+  font-size: 0.90rem;
+  min-height: 36px;
+}
+.member-search-area .form-control {
+  border-radius: 0;
+}
+.member-search-area .input-group .form-control {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.user-doc-status {
+  display: inline-block;
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1;
+  min-width: 1.25rem;
+  text-align: center;
+}
+.user-doc-status--yes {
+  color: #2fb344;
+}
+.user-doc-status--no {
+  color: #d63939;
+}
+</style>
+
+{# JavaScript for member search with type selection #}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const searchTypeSelect = document.getElementById('user-search-type');
+  const searchValueInput = document.getElementById('user-search-value');
+  const searchButton = document.getElementById('user-search-button');
+  const searchReset = document.getElementById('user-search-reset');
+
+  const buildUrl = (params) => {
+    const query = params.toString();
+    return query ? `${window.location.pathname}?${query}` : window.location.pathname;
+  };
+
+  const applySearch = () => {
+    const value = (searchValueInput?.value ?? '').trim();
+    if (!value) {
+      searchValueInput?.focus();
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    if (searchTypeSelect) {
+      params.set('search_type', searchTypeSelect.value);
+    }
+    params.set('search_value', value);
+    params.delete('page');
+    window.location.href = buildUrl(params);
+  };
+
+  const updateResetState = () => {
+    if (!searchReset) {
+      return;
+    }
+    const hasValue = !!(searchValueInput?.value.trim());
+    searchReset.disabled = !hasValue;
+  };
+
+  if (searchButton) {
+    searchButton.addEventListener('click', applySearch);
+  }
+
+  if (searchReset) {
+    searchReset.addEventListener('click', function() {
+      if (searchValueInput) {
+        searchValueInput.value = '';
+      }
+      const params = new URLSearchParams(window.location.search);
+      params.delete('search_type');
+      params.delete('search_value');
+      params.delete('page');
+      window.location.href = buildUrl(params);
+    });
+  }
+
+  if (searchValueInput) {
+    searchValueInput.addEventListener('keydown', function(event) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        applySearch();
+      }
+    });
+    searchValueInput.addEventListener('input', updateResetState);
+  }
+
+  updateResetState();
+});
+</script>
+{% endblock %}

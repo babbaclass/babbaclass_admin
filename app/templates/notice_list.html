@@ -1,0 +1,212 @@
+{% extends "sqladmin/list.html" %}
+{% block content %}
+<div class="container-fluid">
+  <div class="row">
+    <div class="col-12">
+      <div class="card notice-card">
+        <div class="card-header d-flex align-items-start align-items-md-center gap-2">
+          <div>
+            <h3 class="card-title mb-0">{{ model_view.name_plural }}</h3>
+          </div>
+          <div class="ms-auto">
+            {% if model_view.can_create %}
+            <a href="{{ url_for('admin:create', identity=model_view.identity) }}" class="btn btn-primary">새 글 쓰기</a>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="card-body border-bottom py-3">
+          <form method="get" class="row g-3 align-items-end">
+            <input type="hidden" name="sortBy" value="{{ request.query_params.get('sortBy','') }}">
+            <input type="hidden" name="sort" value="{{ request.query_params.get('sort','') }}">
+            <input type="hidden" name="pageSize" value="{{ request.query_params.get('pageSize','') }}">
+            <div class="col-md-2">
+              <button type="button" id="notice-edit-btn" class="btn btn-outline-primary w-100" disabled>수정</button>
+            </div>
+            <div class="col-md-2">
+              <button type="button" id="notice-delete-btn" class="btn btn-outline-danger w-100" disabled>삭제</button>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">검색</label>
+              <input type="text" class="form-control" name="search" value="{{ request.query_params.get('search', '') }}" placeholder="제목 · 작성자 · 내용">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">노출 분류</label>
+              {% set exposure_filter = request.query_params.get('exposure_filter', 'visible_only') %}
+              <select class="form-select" name="exposure_filter">
+                <option value="visible_only" {% if exposure_filter == 'visible_only' %}selected{% endif %}>노출 O만 보기</option>
+                <option value="all" {% if exposure_filter == 'all' %}selected{% endif %}>전체 보기</option>
+              </select>
+            </div>
+            <div class="col-md-1">
+              <button type="submit" class="btn btn-primary w-100">적용</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="notice-table-wrap">
+          <table class="table card-table table-vcenter mb-0 notice-table">
+            <thead class="table-light notice-table__head">
+              <tr>
+                <th class="w-1">
+                  <input class="form-check-input m-0 align-middle" type="checkbox" aria-label="전체 선택" id="notice-select-all">
+                </th>
+                <th>제목</th>
+                <th style="width: 140px;">작성자</th>
+                <th style="width: 220px;">노출 기간</th>
+                <th style="width: 100px; text-align: center;">노출 상태</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in pagination.rows %}
+              <tr>
+                <td>
+                  <input type="hidden" value="{{ get_object_identifier(row) }}">
+                  <input class="form-check-input m-0 align-middle notice-select-box select-box" type="checkbox" aria-label="선택">
+                </td>
+                <td>
+                  {% if model_view.can_edit %}
+                  <a href="{{ model_view._build_url_for('admin:edit', request, row) }}">{{ row.title }}</a>
+                  {% else %}
+                  {{ row.title }}
+                  {% endif %}
+                </td>
+                <td>{{ model_view.author_display(row) }}</td>
+                <td>{{ model_view.exposure_period_display(row) }}</td>
+                <td class="text-center">
+                  {% if model_view.exposure_status_is_live(row) %}
+                  <span class="notice-exposure notice-exposure--on">O</span>
+                  {% else %}
+                  <span class="notice-exposure notice-exposure--off">X</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="5" class="text-center text-muted py-4">등록된 공지가 없습니다.</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card-footer d-flex justify-content-between align-items-center gap-2">
+          <p class="m-0 text-muted">총 <span>{{ pagination.count }}</span>건</p>
+          <ul class="pagination m-0 ms-auto">
+            <li class="page-item {% if not pagination.has_previous %}disabled{% endif %}">
+              <a class="page-link" href="{{ pagination.previous_page.url if pagination.has_previous else '#' }}">
+                <i class="fa-solid fa-chevron-left"></i>
+              </a>
+            </li>
+            {% for page_control in pagination.page_controls %}
+            <li class="page-item {% if page_control.number == pagination.page %}active{% endif %}">
+              <a class="page-link" href="{{ page_control.url }}">{{ page_control.number }}</a>
+            </li>
+            {% endfor %}
+            <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+              <a class="page-link" href="{{ pagination.next_page.url if pagination.has_next else '#' }}">
+                <i class="fa-solid fa-chevron-right"></i>
+              </a>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if model_view.can_delete %}
+<div class="d-none">
+  <a id="action-delete" href="#" data-name="{{ model_view.name }}" data-url="{{ url_for('admin:delete', identity=model_view.identity) }}" data-bs-toggle="modal" data-bs-target="#modal-delete">삭제</a>
+</div>
+{% include 'sqladmin/modals/delete.html' %}
+{% endif %}
+
+<style>
+.notice-card {
+  border: none;
+  border-radius: 0.5rem;
+}
+
+.notice-table-wrap {
+  overflow-x: auto;
+}
+
+.notice-table__head th {
+  white-space: nowrap;
+}
+
+.notice-exposure {
+  display: inline-block;
+  min-width: 1.5rem;
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.notice-exposure--on {
+  color: #d63939;
+}
+
+.notice-exposure--off {
+  color: #6c757d;
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const selectAll = document.getElementById('notice-select-all');
+  const boxes = Array.from(document.querySelectorAll('.notice-select-box'));
+  const editBtn = document.getElementById('notice-edit-btn');
+  const deleteBtn = document.getElementById('notice-delete-btn');
+  const identity = {{ model_view.identity | tojson }};
+
+  function selectedPks() {
+    return boxes
+      .filter(function(box) { return box.checked; })
+      .map(function(box) {
+        return box.closest('tr').querySelector('input[type="hidden"]').value;
+      });
+  }
+
+  function updateActionButtons() {
+    const pks = selectedPks();
+    const hasOne = pks.length === 1;
+    const hasAny = pks.length > 0;
+    if (editBtn) editBtn.disabled = !hasOne;
+    if (deleteBtn) deleteBtn.disabled = !hasAny;
+  }
+
+  if (selectAll) {
+    selectAll.addEventListener('change', function() {
+      boxes.forEach(function(box) { box.checked = selectAll.checked; });
+      updateActionButtons();
+    });
+  }
+
+  boxes.forEach(function(box) {
+    box.addEventListener('change', updateActionButtons);
+  });
+
+  if (editBtn) {
+    editBtn.addEventListener('click', function() {
+      const pks = selectedPks();
+      if (pks.length !== 1) return;
+      window.location.href = '/admin/' + identity + '/edit/' + encodeURIComponent(pks[0]);
+    });
+  }
+
+  if (deleteBtn) {
+    deleteBtn.addEventListener('click', function() {
+      const pks = selectedPks();
+      if (!pks.length) return;
+      const actionDelete = document.getElementById('action-delete');
+      if (actionDelete) {
+        actionDelete.click();
+      }
+    });
+  }
+
+  updateActionButtons();
+});
+</script>
+{% endblock %}

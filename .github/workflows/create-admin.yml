@@ -1,0 +1,87 @@
+name: Create or Update Admin User
+
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: "Admin display name"
+        required: true
+        default: "관리자"
+      email:
+        description: "Admin email (login ID)"
+        required: true
+        default: "admin@babba-api.local"
+      password:
+        description: "Admin password (will not be echoed)"
+        required: true
+      company_group:
+        description: "Company group (HQ/BRANCH)"
+        required: true
+        default: "HQ"
+      company_name:
+        description: "Company name"
+        required: true
+        default: "본사"
+      role_name:
+        description: "Role name containing '관리자' or 'admin'"
+        required: true
+        default: "본사 관리자"
+
+env:
+  PROJECT_ID: astute-window-472313-g9
+
+jobs:
+  create-admin:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: projects/1024083500192/locations/global/workloadIdentityPools/github-pool/providers/github-actions-provider
+          service_account: github-actions@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Start Cloud SQL Proxy (download binary)
+        run: |
+          PROXY_VERSION="v2.11.3"
+          curl -L -o cloud-sql-proxy "https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/${PROXY_VERSION}/cloud-sql-proxy.linux.amd64"
+          chmod +x cloud-sql-proxy
+          nohup ./cloud-sql-proxy ${{ secrets.CLOUD_SQL_INSTANCE }} --port 3306 >/dev/null 2>&1 &
+
+      - name: Setup Python and deps
+        run: |
+          python3 -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Create/Update admin user
+        env:
+          # DB via local proxy
+          DB_HOST: 127.0.0.1
+          DB_PORT: "3306"
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          ADMIN_NAME: ${{ github.event.inputs.name }}
+          ADMIN_EMAIL: ${{ github.event.inputs.email }}
+          ADMIN_PASSWORD: ${{ github.event.inputs.password }}
+          COMPANY_GROUP: ${{ github.event.inputs.company_group }}
+          COMPANY_NAME: ${{ github.event.inputs.company_name }}
+          ROLE_NAME: ${{ github.event.inputs.role_name }}
+        run: |
+          set -euo pipefail
+          source .venv/bin/activate
+          python -c "import os; from app.create_admin import create_admin_user; name=os.environ['ADMIN_NAME']; email=os.environ['ADMIN_EMAIL']; password=os.environ['ADMIN_PASSWORD']; company_group=os.environ.get('COMPANY_GROUP','HQ'); company_name=os.environ.get('COMPANY_NAME','본사'); role_name=os.environ.get('ROLE_NAME','본사 관리자'); create_admin_user(name=name, email=email, password=password, company_group=company_group, company_name=company_name, role_name=role_name); print('Admin user ensured.')"
+
+      - name: Done
+        run: echo "✓ Admin setup completed"
