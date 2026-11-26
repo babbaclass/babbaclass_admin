@@ -1,7 +1,7 @@
-"""Add contracted_at field to users table
+"""Remove birth_date and sub_contact columns from users table
 
-Revision ID: 040
-Revises: 039
+Revision ID: 039
+Revises: 038
 Create Date: 2025-11-19
 
 """
@@ -10,25 +10,25 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '040'
-down_revision = '039'
+revision = '039'
+down_revision = '038'
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
-    """Add contracted_at column to users table"""
-    # Add contracted_at column (YYYY-MM-DD format string, nullable)
-    op.add_column('users', sa.Column('contracted_at', sa.String(10), nullable=True))
+    """Remove birth_date and sub_contact columns"""
+    # Drop birth_date column
+    op.drop_column('users', 'birth_date')
     
-    # Create index on contracted_at for faster lookups
-    op.create_index('ix_users_contracted_at', 'users', ['contracted_at'])
+    # Drop sub_contact column
+    op.drop_column('users', 'sub_contact')
 
 
 def downgrade() -> None:
-    """Remove contracted_at column if needed"""
-    # Drop the index
-    op.drop_index('ix_users_contracted_at', table_name='users')
+    """Restore birth_date and sub_contact columns if needed"""
+    # Add sub_contact column back
+    op.add_column('users', sa.Column('sub_contact', sa.String(255), nullable=True))
     
-    # Drop the column
-    op.drop_column('users', 'contracted_at')
+    # Add birth_date column back
+    op.add_column('users', sa.Column('birth_date', sa.String(20), nullable=False, server_default=''))

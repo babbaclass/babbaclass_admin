@@ -1,4 +1,4 @@
-import glob
+﻿import glob
 import os
 import subprocess
 import sys
@@ -97,6 +97,3 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         log("사용자 종료로 스케줄러를 종료합니다.")
-
-
-

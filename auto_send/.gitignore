@@ -1,4 +1,4 @@
-.env
+﻿.env
 .env.*
 __pycache__/
 *.py[cod]
@@ -23,6 +23,3 @@ send_number/
 scrap/
 *.log
 백업/
-
-
-

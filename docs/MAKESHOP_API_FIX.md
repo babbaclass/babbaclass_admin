@@ -1,189 +1,149 @@
-# FastAPI Admin 패널 가이드
+# Makeshop API 호출 방식 수정 완료
 
-## 📊 Admin 패널 개요
+## 문제점 분석 및 해결
 
-FastAPI Admin을 사용하여 데이터베이스 모델(Users, Partners)을 시각적으로 관리할 수 있는 관리자 패널을 제공합니다.
+### 🔴 발견된 문제
+현재 Makeshop API 클라이언트가 **잘못된 방식으로 호출**하고 있었습니다:
+- API 엔드포인트 형식이 부정확
+- URL 스킴(http/https) 누락
+- 기본값이 API 서버(openapi.makeshop.co.kr)로 설정되어 있어서 실제 상점 도메인 사용 불가
 
-## 🎯 주요 기능
+### ✅ 수정 사항
 
-### Users 관리
-- ✅ 사용자 생성/조회/수정/삭제
-- ✅ 이메일, 사용자명으로 검색
-- ✅ 활성 상태 관리
-- ✅ 생성/수정 시간 추적
+#### 1. **makeshop_service.py - __init__ 메서드**
+```python
+# 변경 전
+self.shop_domain = os.getenv("MAKESHOP_API_URL", "https://api.makeshop.co.kr")
 
-### Partners 관리
-- ✅ 파트너사 생성/조회/수정/삭제
-- ✅ 파트너명으로 검색
-- ✅ 설명 관리
-- ✅ 활성 상태 관리
+# 변경 후
+shop_domain = os.getenv("MAKESHOP_API_URL")  # 상점 도메인 (예: www.babbasmartclass.com)
+if not shop_domain.startswith("http://") and not shop_domain.startswith("https://"):
+    self.shop_domain = f"http://{shop_domain}"  # http:// 프로토콜 자동 추가
+else:
+    self.shop_domain = shop_domain
+```
 
-## 🚀 사용 방법
+**개선 사항:**
+- ✅ 환경 변수에서 상점 도메인을 직접 사용
+- ✅ 프로토콜 자동 추가 (http:// 기본값)
+- ✅ 기본값 제거로 필수 설정 강제화
 
-### 1단계: 로컬에서 테스트
+#### 2. **makeshop_service.py - API 응답 처리**
+```python
+# 새로 추가: Makeshop API 응답 코드 검증
+if isinstance(data, dict) and "return_code" in data:
+    return_code = data.get("return_code")
+    
+    if return_code in ["0", "1", 0, 1]:  # 성공
+        return data
+    
+    # 오류 코드 해석 및 처리
+    error_msg = self._get_error_message(return_code)
+    raise Exception(f"Makeshop API 오류: {return_code} - {error_msg}")
+```
+
+**개선 사항:**
+- ✅ API 응답 코드(return_code) 검증
+- ✅ 오류 코드별 상세 메시지 제공
+- ✅ 명확한 에러 핸들링
+
+#### 3. **makeshop_service.py - 오류 코드 매핑**
+```python
+def _get_error_message(self, return_code: Any) -> str:
+    """Makeshop API 오류 코드 해석"""
+    error_codes = {
+        "9000": "요청 형식 오류",
+        "9001": "필수 파라미터 누락",
+        "9002": "잘못된 상점 정보",  # ← 현재 발생 중인 오류
+        "9003": "인증 실패",
+        "9004": "권한 없음",
+        "9005": "존재하지 않는 리소스",
+        "9006": "요청 실패",
+        "9999": "시스템 오류"
+    }
+```
+
+### 📋 API 호출 형식
+
+**이제 올바르게 호출되는 형식:**
+```
+curl -H 'Shopkey: {MAKESHOP_API_KEY}' \
+     -H 'Licensekey: {MAKESHOP_SHOP_ID}' \
+     'http://www.babbasmartclass.com/list/open_api.html?mode=search&type=product&page=1&limit=1'
+```
+
+### 🔍 현재 상태
+
+| 항목 | 상태 | 설명 |
+|------|------|------|
+| API 호출 형식 | ✅ 수정 완료 | curl과 동일한 형식으로 호출 |
+| 헤더 설정 | ✅ 정상 | Shopkey/Licensekey 헤더 전송 |
+| URL 구성 | ✅ 정상 | http://도메인/list/open_api.html?파라미터 |
+| 응답 처리 | ✅ 개선됨 | return_code 검증 및 에러 해석 |
+| API 연결 | 🔴 실패 | return_code: 9002 (잘못된 상점 정보) |
+
+### 🧪 테스트 결과
 
 ```bash
-# 패키지 설치
-pip install -r requirements.txt
+# 테스트 케이스
+테스트 1: 사용자 조회 (type=user)
+응답: {"return_code": "9002"}
 
-# 서버 실행
-uvicorn app.main:app --reload
+테스트 2: 상품 조회 (type=product)
+응답: {"return_code": "9002"}
+
+테스트 3: 카테고리 조회 (type=category)
+응답: {"return_code": "9002"}
+
+테스트 4: 주문 조회 (type=order)
+응답: {"return_code": "9002"}
 ```
 
-### 2단계: Admin 패널 접속
+모든 요청에서 **동일한 오류 코드(9002)**를 반환 → 호출 형식은 정상이지만 **인증 정보 불일치** 가능성
 
-브라우저에서 다음 URL로 접속:
+### 🛠️ 다음 확인 사항
+
+#### 1. ⚠️ return_code 9002 해결 방법
 ```
-http://localhost:8000/admin
-```
-
-### 3단계: 로그인 (기본 설정)
-
-기본 Admin 패널에서는 로그인이 필요합니다:
-- **Username**: `admin`
-- **Password**: `admin` (또는 설정된 비밀번호)
-
-**주의**: 프로덕션 환경에서는 보안 설정을 필수로 변경해야 합니다!
-
-## 📱 Admin 패널 기능
-
-### Users 패널
-| 기능 | 설명 |
-|------|------|
-| **생성** | 새 사용자 추가 |
-| **조회** | 모든 사용자 목록 보기 |
-| **수정** | 사용자 정보 편집 |
-| **삭제** | 사용자 삭제 |
-| **검색** | 이메일/사용자명으로 검색 |
-| **정렬** | ID, 생성일로 정렬 |
-
-### Partners 패널
-| 기능 | 설명 |
-|------|------|
-| **생성** | 새 파트너사 추가 |
-| **조회** | 모든 파트너사 목록 보기 |
-| **수정** | 파트너 정보 편집 |
-| **삭제** | 파트너사 삭제 |
-| **검색** | 파트너명으로 검색 |
-| **정렬** | ID, 생성일로 정렬 |
-
-## 🔒 보안 설정 (프로덕션)
-
-### 1. 비밀번호 변경
-
-```python
-# app/admin.py에서 기본 비밀번호 설정
-admin = Admin(
-    app=app,
-    engine=engine,
-    title="babba-api Admin",
-    username="admin",
-    password="your-secure-password",  # 변경 필수!
-)
+✓ 확인할 사항:
+  1. MAKESHOP_API_KEY(Shopkey) - 올바른 값인지 확인
+  2. MAKESHOP_SHOP_ID(Licensekey) - 올바른 값인지 확인  
+  3. MAKESHOP_API_URL - 상점 도메인과 Shopkey/Licensekey가 일치하는지 확인
+  4. Makeshop 관리자 페이지 확인:
+     - 개발자 설정에서 API 키 재확인
+     - 상점 정보와 API 키 매칭 확인
 ```
 
-### 2. HTTPS 사용
+#### 2. 📚 참고 자료
+- Makeshop Open API 문서: https://openapi.makeshop.co.kr/
+- 상점 관리자 페이지: https://www.babbasmartclass.com
 
-프로덕션에서는 반드시 HTTPS를 사용하세요.
+### 📦 배포 정보
 
-### 3. 접근 제제
-
-Admin 패널을 특정 IP 주소에서만 접근 가능하도록 제한:
-
-```python
-# Middleware를 사용하여 IP 제한
-from fastapi import Request
-from starlette.middleware.base import BaseHTTPMiddleware
-
-class AdminIPRestrict(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        if request.url.path.startswith("/admin"):
-            client_ip = request.client.host
-            allowed_ips = ["YOUR_IP"]  # 관리자 IP만 허용
-            if client_ip not in allowed_ips:
-                return JSONResponse(status_code=403, content={"detail": "Forbidden"})
-        return await call_next(request)
-
-app.add_middleware(AdminIPRestrict)
+**배포됨:** Cloud Run revision 00046-ck6
+```bash
+- 이미지 Digest: sha256:fb8f884dc07cebd8a46c95f1e609c592233c6dc5816e24fd2a038dd3b79da48b
+- 상태: 100% 트래픽 수신 중
+- URL: https://babba-api-1024083500192.asia-northeast3.run.app
 ```
 
-## 📡 API vs Admin 패널
-
-| 항목 | REST API | Admin 패널 |
-|------|----------|-----------|
-| **접근** | 프로그래밍 방식 | GUI 방식 |
-| **권한** | API 토큰 기반 | 로그인 기반 |
-| **성능** | JSON 기반 | HTML/웹 기반 |
-| **용도** | 자동화/통합 | 수동 관리 |
-
-## 🔗 관련 엔드포인트
-
-### REST API (비 Admin)
-- `GET /users` - 사용자 목록
-- `POST /users` - 사용자 생성
-- `GET /users/{user_id}` - 사용자 조회
-- `DELETE /users/{user_id}` - 사용자 삭제
-
-### Admin 패널
-- `GET /admin` - Admin 대시보드
-- `GET /admin/users` - 사용자 관리
-- `GET /admin/partners` - 파트너 관리
-
-## 📊 데이터 구조
-
-### Users 테이블
-```sql
-CREATE TABLE users (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    email VARCHAR(255) UNIQUE NOT NULL,
-    username VARCHAR(100) UNIQUE NOT NULL,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
+**테스트 결과:**
+```bash
+✅ /health → {"status":"healthy"}
+✅ /health/db → {"status":"healthy","database":"connected"}
+🔴 /makeshop/health → {"status":"unhealthy","message":"Makeshop API 연결 실패"}
+   (9002: 잘못된 상점 정보)
 ```
 
-### Partners 테이블
-```sql
-CREATE TABLE partners (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
-```
+### 📂 추가된 파일
 
-## 🆘 트러블슈팅
+1. **test_makeshop_api.py** - 여러 API 타입 테스트
+2. **debug_makeshop_api.py** - 다양한 URL 형식 디버깅
 
-### Admin 패널에 접속할 수 없음
-1. 서버가 실행 중인지 확인: `http://localhost:8000`
-2. URL 확인: `http://localhost:8000/admin` (정확한 경로)
-3. 브라우저 캐시 삭제 및 새로고침
+### 🎯 요약
 
-### 로그인 실패
-1. 기본 자격증명 확인: `admin` / `admin`
-2. `app/admin.py`에서 설정한 비밀번호 확인
-3. 데이터베이스 연결 상태 확인
+✅ **호출 방식**: 올바르게 수정됨 (curl과 동일)
+✅ **코드 품질**: 에러 처리 강화  
+❌ **API 연결**: 인증 정보 문제 (return_code 9002)
 
-### 데이터베이스 쿼리 오류
-1. Cloud SQL 연결 확인
-2. 테이블이 생성되었는지 확인
-3. SQLAlchemy 모델이 정확히 정의되었는지 확인
-
-## 📚 참고 자료
-
-- [FastAPI Admin GitHub](https://github.com/aminalaee/fastapi-admin)
-- [FastAPI 문서](https://fastapi.tiangolo.com/)
-- [SQLAlchemy ORM](https://docs.sqlalchemy.org/)
-
----
-
-**Admin 패널을 통해 데이터베이스를 시각적으로 관리하세요!** 🎉
-
-
-
-
-
-
+**다음 단계**: Makeshop 관리자에게 확인하여 API 키(Shopkey/Licensekey) 및 상점 도메인 재검증 필요
