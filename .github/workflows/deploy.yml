@@ -39,10 +39,15 @@ jobs:
           PROXY_VERSION="v2.11.3"
           curl -L -o cloud-sql-proxy "https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/${PROXY_VERSION}/cloud-sql-proxy.linux.amd64"
           chmod +x cloud-sql-proxy
-          nohup ./cloud-sql-proxy "${{ env.CLOUD_SQL_INSTANCE }}" --port 3306 > cloud-sql-proxy.log 2>&1 &
+          # GitHub-hosted runner uses public IP path through Auth Proxy
+          nohup ./cloud-sql-proxy "${{ env.CLOUD_SQL_INSTANCE }}" \
+            --address 127.0.0.1 \
+            --port 3306 \
+            > cloud-sql-proxy.log 2>&1 &
+          echo $! > cloud-sql-proxy.pid
           for i in $(seq 1 30); do
             if python3 -c "import socket; s=socket.create_connection(('127.0.0.1',3306),2); s.close()" 2>/dev/null; then
-              echo "✓ Cloud SQL Proxy is ready on 127.0.0.1:3306"
+              echo "✓ Cloud SQL Proxy is listening on 127.0.0.1:3306"
               exit 0
             fi
             echo "  Waiting for Cloud SQL Proxy... ($i/30)"
@@ -62,11 +67,45 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Verify DB via Cloud SQL Proxy
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: "3306"
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+        run: |
+          python3 <<'PY' || { echo "---- cloud-sql-proxy.log ----"; cat cloud-sql-proxy.log || true; exit 1; }
+          import os, sys
+          import pymysql
+          try:
+              conn = pymysql.connect(
+                  host=os.environ["DB_HOST"],
+                  port=int(os.environ["DB_PORT"]),
+                  user=os.environ["DB_USER"],
+                  password=os.environ["DB_PASSWORD"],
+                  database=os.environ["DB_NAME"],
+                  connect_timeout=20,
+                  read_timeout=20,
+                  write_timeout=20,
+              )
+              with conn.cursor() as cur:
+                  cur.execute("SELECT 1")
+                  print("✓ DB connection OK:", cur.fetchone())
+              conn.close()
+          except Exception as exc:
+              print("❌ DB connection failed:", type(exc).__name__, exc)
+              sys.exit(1)
+          PY
+
       - name: Show Alembic status
         env:
           DB_HOST: 127.0.0.1
           DB_PORT: "3306"
           CLOUD_SQL_HOST: 127.0.0.1
+          # Avoid unix-socket probe from app.database during model import
+          CLOUD_SQL_INSTANCE: ""
+          DB_SSL_MODE: DISABLED
           DB_USER: ${{ secrets.DB_USER }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DB_NAME: ${{ secrets.DB_NAME }}
@@ -80,11 +119,18 @@ jobs:
           DB_HOST: 127.0.0.1
           DB_PORT: "3306"
           CLOUD_SQL_HOST: 127.0.0.1
+          CLOUD_SQL_INSTANCE: ""
+          DB_SSL_MODE: DISABLED
           DB_USER: ${{ secrets.DB_USER }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DB_NAME: ${{ secrets.DB_NAME }}
           PYTHONPATH: ${{ github.workspace }}
-        run: alembic upgrade head
+        run: |
+          alembic upgrade head || {
+            echo "---- cloud-sql-proxy.log ----"
+            cat cloud-sql-proxy.log || true
+            exit 1
+          }
 
   deploy:
     name: Deploy to Cloud Run
