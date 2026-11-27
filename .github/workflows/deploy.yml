@@ -13,6 +13,7 @@ env:
   REPO_NAME: babba-registry
   IMAGE_NAME: babba-api
   REGISTRY: asia-northeast3-docker.pkg.dev
+  CLOUD_SQL_INSTANCE: astute-window-472313-g9:asia-northeast3:babba-db
 
 jobs:
   migrate:
@@ -38,7 +39,7 @@ jobs:
           PROXY_VERSION="v2.11.3"
           curl -L -o cloud-sql-proxy "https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/${PROXY_VERSION}/cloud-sql-proxy.linux.amd64"
           chmod +x cloud-sql-proxy
-          nohup ./cloud-sql-proxy "${{ secrets.CLOUD_SQL_INSTANCE }}" --port 3306 > cloud-sql-proxy.log 2>&1 &
+          nohup ./cloud-sql-proxy "${{ env.CLOUD_SQL_INSTANCE }}" --port 3306 > cloud-sql-proxy.log 2>&1 &
           for i in $(seq 1 30); do
             if python3 -c "import socket; s=socket.create_connection(('127.0.0.1',3306),2); s.close()" 2>/dev/null; then
               echo "✓ Cloud SQL Proxy is ready on 127.0.0.1:3306"
@@ -139,7 +140,7 @@ jobs:
             --cpu=1 \
             --timeout=300 \
             --no-traffic \
-            --set-env-vars CLOUD_SQL_INSTANCE="",CLOUD_SQL_HOST="10.85.224.3",DB_USER="${{ secrets.DB_USER }}",DB_PASSWORD="${{ secrets.DB_PASSWORD }}",DB_NAME="${{ secrets.DB_NAME }}",MAKESHOP_SHOPKEY="${{ secrets.MAKESHOP_SHOPKEY }}",MAKESHOP_LICENSEKEY="${{ secrets.MAKESHOP_LICENSEKEY }}",MAKESHOP_API_URL="${{ secrets.MAKESHOP_API_URL }}",MAKESHOP_API_TIMEOUT="${{ secrets.MAKESHOP_API_TIMEOUT }}",MAKESHOP_CLIENT_ID="${{ secrets.MAKESHOP_CLIENT_ID }}",MAKESHOP_CLIENT_SECRET="${{ secrets.MAKESHOP_CLIENT_SECRET }}",MAKESHOP_SHOP_UID="${{ secrets.MAKESHOP_SHOP_UID }}",MAKESHOP_USE_REST=true,GOOGLE_CHAT_WEBHOOK_URL="${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}",MAKESHOP_REST_CHAT_NOTIFY=true,MAKESHOP_DUAL_COMPARE=false,ADMIN_BOOTSTRAP_TOKEN="${{ secrets.ADMIN_BOOTSTRAP_TOKEN }}",RUN_MIGRATIONS=false
+            --set-env-vars CLOUD_SQL_INSTANCE="",CLOUD_SQL_HOST="10.85.224.3",DB_USER="${{ secrets.DB_USER }}",DB_PASSWORD="${{ secrets.DB_PASSWORD }}",DB_NAME="${{ secrets.DB_NAME }}",MAKESHOP_API_TIMEOUT=60,MAKESHOP_CLIENT_ID="${{ secrets.MAKESHOP_CLIENT_ID }}",MAKESHOP_CLIENT_SECRET="${{ secrets.MAKESHOP_CLIENT_SECRET }}",MAKESHOP_SHOP_UID="${{ secrets.MAKESHOP_SHOP_UID }}",MAKESHOP_USE_REST=true,GOOGLE_CHAT_WEBHOOK_URL="https://chat.googleapis.com/v1/spaces/AAQAU3lYF4Y/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=O2xA-6Nk9fhha_lYou1PbmpQudVCFNo_drL49w6wT1o",MAKESHOP_REST_CHAT_NOTIFY=true,MAKESHOP_DUAL_COMPARE=false,RUN_MIGRATIONS=false
 
       - name: Deploy service to Cloud Run (direct VPC egress)
         run: |
@@ -158,7 +159,7 @@ jobs:
             --cpu=1 \
             --timeout=300 \
             --no-traffic \
-            --set-env-vars CLOUD_SQL_INSTANCE="",CLOUD_SQL_HOST="10.85.224.3",DB_USER="${{ secrets.DB_USER }}",DB_PASSWORD="${{ secrets.DB_PASSWORD }}",DB_NAME="${{ secrets.DB_NAME }}",MAKESHOP_SHOPKEY="${{ secrets.MAKESHOP_SHOPKEY }}",MAKESHOP_LICENSEKEY="${{ secrets.MAKESHOP_LICENSEKEY }}",MAKESHOP_API_URL="${{ secrets.MAKESHOP_API_URL }}",MAKESHOP_API_TIMEOUT="${{ secrets.MAKESHOP_API_TIMEOUT }}",MAKESHOP_CLIENT_ID="${{ secrets.MAKESHOP_CLIENT_ID }}",MAKESHOP_CLIENT_SECRET="${{ secrets.MAKESHOP_CLIENT_SECRET }}",MAKESHOP_SHOP_UID="${{ secrets.MAKESHOP_SHOP_UID }}",MAKESHOP_USE_REST=true,GOOGLE_CHAT_WEBHOOK_URL="${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}",MAKESHOP_REST_CHAT_NOTIFY=true,MAKESHOP_DUAL_COMPARE=false,ADMIN_BOOTSTRAP_TOKEN="${{ secrets.ADMIN_BOOTSTRAP_TOKEN }}",RUN_MIGRATIONS=false
+            --set-env-vars CLOUD_SQL_INSTANCE="",CLOUD_SQL_HOST="10.85.224.3",DB_USER="${{ secrets.DB_USER }}",DB_PASSWORD="${{ secrets.DB_PASSWORD }}",DB_NAME="${{ secrets.DB_NAME }}",MAKESHOP_API_TIMEOUT=60,MAKESHOP_CLIENT_ID="${{ secrets.MAKESHOP_CLIENT_ID }}",MAKESHOP_CLIENT_SECRET="${{ secrets.MAKESHOP_CLIENT_SECRET }}",MAKESHOP_SHOP_UID="${{ secrets.MAKESHOP_SHOP_UID }}",MAKESHOP_USE_REST=true,GOOGLE_CHAT_WEBHOOK_URL="https://chat.googleapis.com/v1/spaces/AAQAU3lYF4Y/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=O2xA-6Nk9fhha_lYou1PbmpQudVCFNo_drL49w6wT1o",MAKESHOP_REST_CHAT_NOTIFY=true,MAKESHOP_DUAL_COMPARE=false,RUN_MIGRATIONS=false
 
       - name: Route traffic to new revision
         run: |

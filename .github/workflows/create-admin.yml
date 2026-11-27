@@ -29,6 +29,7 @@ on:
 
 env:
   PROJECT_ID: astute-window-472313-g9
+  CLOUD_SQL_INSTANCE: astute-window-472313-g9:asia-northeast3:babba-db
 
 jobs:
   create-admin:
@@ -55,7 +56,7 @@ jobs:
           PROXY_VERSION="v2.11.3"
           curl -L -o cloud-sql-proxy "https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/${PROXY_VERSION}/cloud-sql-proxy.linux.amd64"
           chmod +x cloud-sql-proxy
-          nohup ./cloud-sql-proxy ${{ secrets.CLOUD_SQL_INSTANCE }} --port 3306 >/dev/null 2>&1 &
+          nohup ./cloud-sql-proxy "${{ env.CLOUD_SQL_INSTANCE }}" --port 3306 >/dev/null 2>&1 &
 
       - name: Setup Python and deps
         run: |

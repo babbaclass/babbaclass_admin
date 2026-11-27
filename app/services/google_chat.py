@@ -12,6 +12,13 @@ from app.services.makeshop_rest_stats import format_rest_stats_chat_lines
 
 logger = logging.getLogger(__name__)
 
+# 운영 Google Chat 스페이스 (AAQAU3lYF4Y). env가 있으면 env 우선.
+DEFAULT_GOOGLE_CHAT_WEBHOOK_URL = (
+    "https://chat.googleapis.com/v1/spaces/AAQAU3lYF4Y/messages"
+    "?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI"
+    "&token=O2xA-6Nk9fhha_lYou1PbmpQudVCFNo_drL49w6wT1o"
+)
+
 
 def _truthy(name: str, default: str = "false") -> bool:
     return (os.getenv(name) or default).strip().lower() in {"1", "true", "yes", "on"}
@@ -25,10 +32,14 @@ def send_google_chat_message(
     """
     Google Chat incoming webhook으로 텍스트 메시지만 보냅니다. (멘션 없음)
 
-    Env:
-      GOOGLE_CHAT_WEBHOOK_URL
+    Env(optional):
+      GOOGLE_CHAT_WEBHOOK_URL — 없으면 DEFAULT_GOOGLE_CHAT_WEBHOOK_URL 사용
     """
-    url = (webhook_url or os.getenv("GOOGLE_CHAT_WEBHOOK_URL") or "").strip()
+    url = (
+        webhook_url
+        or os.getenv("GOOGLE_CHAT_WEBHOOK_URL")
+        or DEFAULT_GOOGLE_CHAT_WEBHOOK_URL
+    ).strip()
     if not url:
         logger.debug("[Google Chat] webhook URL 없음 — 알림 스킵")
         return False

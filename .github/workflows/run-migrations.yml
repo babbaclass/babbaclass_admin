@@ -8,6 +8,9 @@ on:
         required: false
         default: "head"
 
+env:
+  CLOUD_SQL_INSTANCE: astute-window-472313-g9:asia-northeast3:babba-db
+
 jobs:
   migrate:
     name: Alembic upgrade
@@ -32,7 +35,7 @@ jobs:
           PROXY_VERSION="v2.11.3"
           curl -L -o cloud-sql-proxy "https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/${PROXY_VERSION}/cloud-sql-proxy.linux.amd64"
           chmod +x cloud-sql-proxy
-          nohup ./cloud-sql-proxy "${{ secrets.CLOUD_SQL_INSTANCE }}" --port 3306 > cloud-sql-proxy.log 2>&1 &
+          nohup ./cloud-sql-proxy "${{ env.CLOUD_SQL_INSTANCE }}" --port 3306 > cloud-sql-proxy.log 2>&1 &
           for i in $(seq 1 30); do
             if python3 -c "import socket; s=socket.create_connection(('127.0.0.1',3306),2); s.close()" 2>/dev/null; then
               echo "✓ Cloud SQL Proxy is ready on 127.0.0.1:3306"

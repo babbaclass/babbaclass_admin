@@ -27,7 +27,6 @@ from app.services.makeshop_sync_service import (
     should_fetch_next_order_page,
 )
 from app.routers import organization
-from app.routers import admin_bootstrap
 from app.routers import admin_sheet_import
 from app.routers import admin_settlement_api
 from app.routers import admin_views
@@ -191,7 +190,6 @@ app.add_middleware(AdminIndexRedirectMiddleware)
 
 # Include organization routers FIRST (before SQLAdmin setup)
 app.include_router(organization.router)
-app.include_router(admin_bootstrap.router)
 app.include_router(admin_sheet_import.router)
 app.include_router(admin_views.router)  # Admin 뷰 라우터 (Commission, Data Tools)
 app.include_router(admin_settlement_api.router, prefix="/api/admin")  # 정산 API 라우터 (AJAX용, prefix 추가하여 프런트엔드 fetch 경로와 일치)
@@ -1636,9 +1634,10 @@ def test_makeshop_api_connection(db: Session = Depends(get_db)):
             "client_id_set": bool(os.getenv("MAKESHOP_CLIENT_ID")),
             "client_secret_set": bool(os.getenv("MAKESHOP_CLIENT_SECRET")),
             "shop_uid": os.getenv("MAKESHOP_SHOP_UID"),
-            "shopkey_set": bool(os.getenv("MAKESHOP_SHOPKEY")),
-            "licensekey_set": bool(os.getenv("MAKESHOP_LICENSEKEY")),
-            "api_url": os.getenv("MAKESHOP_API_URL"),
+            # 레거시 Open API 미사용
+            # "shopkey_set": bool(os.getenv("MAKESHOP_SHOPKEY")),
+            # "licensekey_set": bool(os.getenv("MAKESHOP_LICENSEKEY")),
+            # "api_url": os.getenv("MAKESHOP_API_URL"),
         }
 
         response_data = fetch_products_page(page=1, limit=1, db=db)

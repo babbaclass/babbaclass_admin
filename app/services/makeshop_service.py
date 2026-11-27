@@ -77,41 +77,32 @@ class MakeshopAPIClient:
     """Makeshop API를 호출하기 위한 클라이언트"""
 
     def __init__(self):
-        """Makeshop API 클라이언트 초기화"""
-        self.shop_key = os.getenv("MAKESHOP_SHOPKEY")  # Shopkey
-        self.license_key = os.getenv("MAKESHOP_LICENSEKEY")  # Licensekey
-        
-        # 상점 도메인 설정 (예: www.babbasmartclass.com)
-        shop_domain = os.getenv("MAKESHOP_API_URL")
-        if not shop_domain:
-            raise ValueError("MAKESHOP_API_URL 환경변수가 설정되어 있지 않습니다.")
-        
-        # 프로토콜 추가 (http:// 또는 https://)
-        if not shop_domain.startswith("http://") and not shop_domain.startswith("https://"):
-            # Makeshop은 기본적으로 http 사용
-            self.shop_domain = f"http://{shop_domain}"
-        else:
-            self.shop_domain = shop_domain
-        
-        # 타임아웃 설정: 회원 동기화는 데이터가 많아 오래 걸릴 수 있으므로 60초로 연장
-        self.timeout = int(os.getenv("MAKESHOP_API_TIMEOUT", 60))
-
-        # API 인증 정보 검증
-        if not self.shop_key or not self.license_key:
-            raise ValueError(
-                "Makeshop API 인증 정보가 누락되었습니다. "
-                "MAKESHOP_API_KEY(Shopkey)와 MAKESHOP_SHOP_ID(Licensekey)를 설정하세요."
-            )
-
-        # Makeshop API 헤더 설정 (공식 문서 기준)
-        # MakeShop API는 Shopkey와 Licensekey만 필수
-        # Content-Type과 Accept는 설정하지 않음
-        self.headers = {
-            "Shopkey": self.shop_key,
-            "Licensekey": self.license_key
-        }
-
-        print("[MakeShopAPIClient 초기화] shop_key 설정 완료")
+        """Makeshop API 클라이언트 초기화 (레거시 Open API — 비활성)."""
+        # 레거시 구 Open API 미사용. REST(MakeshopRestClient)만 사용.
+        # self.shop_key = os.getenv("MAKESHOP_SHOPKEY")
+        # self.license_key = os.getenv("MAKESHOP_LICENSEKEY")
+        # shop_domain = os.getenv("MAKESHOP_API_URL")
+        # if not shop_domain:
+        #     raise ValueError("MAKESHOP_API_URL 환경변수가 설정되어 있지 않습니다.")
+        # if not shop_domain.startswith("http://") and not shop_domain.startswith("https://"):
+        #     self.shop_domain = f"http://{shop_domain}"
+        # else:
+        #     self.shop_domain = shop_domain
+        # self.timeout = int(os.getenv("MAKESHOP_API_TIMEOUT", 60))
+        # if not self.shop_key or not self.license_key:
+        #     raise ValueError(
+        #         "Makeshop API 인증 정보가 누락되었습니다. "
+        #         "MAKESHOP_API_KEY(Shopkey)와 MAKESHOP_SHOP_ID(Licensekey)를 설정하세요."
+        #     )
+        # self.headers = {
+        #     "Shopkey": self.shop_key,
+        #     "Licensekey": self.license_key,
+        # }
+        raise RuntimeError(
+            "Makeshop legacy Open API is disabled "
+            "(MAKESHOP_SHOPKEY / MAKESHOP_LICENSEKEY / MAKESHOP_API_URL unused). "
+            "Use REST via MakeshopRestClient."
+        )
 
     def _request(
         self,

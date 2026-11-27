@@ -15,10 +15,10 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-import requests
+# import requests  # 레거시 Open API 비활성
 
 from app.services.google_chat import send_google_chat_message
-from app.services.makeshop_service import MakeshopAPIClient
+# from app.services.makeshop_service import MakeshopAPIClient
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +27,10 @@ _CHAT_DIFF_LINES = 20
 
 
 def dual_compare_enabled() -> bool:
-    """기본 false (병행 비교 Chat 종료). true 로만 재활성."""
-    raw = (os.getenv("MAKESHOP_DUAL_COMPARE") or "false").strip().lower()
-    return raw in {"1", "true", "yes", "on"}
+    """레거시 Open API 비활성으로 병행 비교도 끔."""
+    # raw = (os.getenv("MAKESHOP_DUAL_COMPARE") or "false").strip().lower()
+    # return raw in {"1", "true", "yes", "on"}
+    return False
 
 
 def _compare_every_page() -> bool:
@@ -51,22 +52,25 @@ def _should_report_page(page: int) -> bool:
 
 
 def _legacy_get(params: Dict[str, Any]) -> Dict[str, Any]:
-    client = MakeshopAPIClient()
-    headers = {
-        "Shopkey": client.shop_key,
-        "Licensekey": client.license_key,
-        "Content-Type": "application/json",
-    }
-    response = requests.get(
-        f"{client.shop_domain}/list/open_api.html",
-        headers=headers,
-        params=params,
-        timeout=client.timeout,
-    )
-    data = response.json()
-    if not isinstance(data, dict):
-        return {"return_code": "9999", "message": "non-dict response", "list": []}
-    return data
+    # 레거시 Open API 비활성 (MAKESHOP_SHOPKEY / LICENSEKEY / API_URL)
+    # client = MakeshopAPIClient()
+    # headers = {
+    #     "Shopkey": client.shop_key,
+    #     "Licensekey": client.license_key,
+    #     "Content-Type": "application/json",
+    # }
+    # response = requests.get(
+    #     f"{client.shop_domain}/list/open_api.html",
+    #     headers=headers,
+    #     params=params,
+    #     timeout=client.timeout,
+    # )
+    # data = response.json()
+    # if not isinstance(data, dict):
+    #     return {"return_code": "9999", "message": "non-dict response", "list": []}
+    # return data
+    del params
+    raise RuntimeError("Makeshop legacy Open API is disabled")
 
 
 def fetch_legacy_products_page(*, page: int, limit: int) -> Dict[str, Any]:
